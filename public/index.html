@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Chat with LLM</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+h1 {
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    color: white;
+    text-align: center;
+    padding: 20px;
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+.status {
+    text-align: center;
+    padding: 15px;
+    font-weight: bold;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.status.connected {
+    background: #4CAF50;
+    color: white;
+}
+
+.status.disconnected {
+    background: #f44336;
+    color: white;
+}
+
+.controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    padding: 20px;
+    background: #f5f5f5;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 25px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+#connectBtn {
+    background: #2196F3;
+    color: white;
+}
+
+#recordBtn {
+    background: #FF5722;
+    color: white;
+}
+
+#recordBtn.recording {
+    background: #f44336;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+#playBtn {
+    background: #4CAF50;
+    color: white;
+}
+
+.transcript {
+    padding: 20px;
+    border-top: 1px solid #eee;
+}
+
+.transcript h2 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 1.3rem;
+}
+
+.conversation {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 15px;
+    background: #fafafa;
+}
+
+.message {
+    margin: 10px 0;
+    padding: 12px;
+    border-radius: 10px;
+    position: relative;
+}
+
+.user-message {
+    background: #e3f2fd;
+    border-left: 4px solid #2196F3;
+}
+
+.ai-message {
+    background: #f3e5f5;
+    border-left: 4px solid #9c27b0;
+}
+
+.system-message {
+    background: #fff3e0;
+    border-left: 4px solid #ff9800;
+    font-style: italic;
+}
+
+.timestamp {
+    font-size: 0.8rem;
+    color: #666;
+    margin-top: 5px;
+}
+
+.latency {
+    font-size: 0.8rem;
+    color: #009688;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+.latency-stats {
+    padding: 15px 20px;
+    background: #e8f5e8;
+    border-top: 1px solid #ddd;
+    text-align: center;
+}
+
+.latency-stats h3 {
+    color: #2e7d32;
+    margin-bottom: 10px;
+    font-size: 1.1rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.stat-item {
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #c8e6c9;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #2e7d32;
+    margin-top: 2px;
+}
+
+.audio-visualization {
+    padding: 20px;
+    text-align: center;
+    border-top: 1px solid #eee;
+}
+
+.audio-visualization h2 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 1.3rem;
+}
+
+#visualizer {
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    background: #f0f0f0;
+    width: 100%;
+    max-width: 400px;
+    height: 100px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Voice Chat with LLM</h1>
+<div class="status" id="status">Disconnected</div>
+<div class="controls">
+<button id="connectBtn" class="btn">Connect</button>
+<button id="recordBtn" class="btn" disabled>Start Recording</button>
+<button id="playBtn" class="btn" disabled>Play Response</button>
+</div>
+<div class="latency-stats">
+<h3>Performance Stats</h3>
+<div class="stats-grid">
+<div class="stat-item">
+<div class="stat-label">Last Response</div>
+<div class="stat-value" id="lastLatency">--</div>
+</div>
+<div class="stat-item">
+<div class="stat-label">Average</div>
+<div class="stat-value" id="avgLatency">--</div>
+</div>
+<div class="stat-item">
+<div class="stat-label">Best</div>
+<div class="stat-value" id="minLatency">--</div>
+</div>
+<div class="stat-item">
+<div class="stat-label">Worst</div>
+<div class="stat-value" id="maxLatency">--</div>
+</div>
+</div>
+</div>
+<div class="transcript">
+<h2>Conversation</h2>
+<div id="conversation" class="conversation"></div>
+</div>
+<div class="audio-visualization">
+<h2>Audio Input</h2>
+<canvas id="visualizer" width="400" height="100"></canvas>
+</div>
+</div>
+
+<script>
+class VoiceChatClient {
+    constructor() {
+        this.ws = null;
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.isRecording = false;
+        this.callSid = 'web-client-' + Math.random().toString(36).substring(2, 10);
+        this.audioContext = null;
+        this.analyser = null;
+        this.animationFrame = null;
+        this.lastAudioData = null;
+        this.isSpeaking = false;
+        this.currentUtterance = null;
+        
+        // Performance tracking
+        this.requestStartTime = null;
+        this.latencyHistory = [];
+        
+        this.initializeElements();
+        this.setupEventListeners();
+    }
+
+    initializeElements() {
+        this.statusElement = document.getElementById('status');
+        this.connectBtn = document.getElementById('connectBtn');
+        this.recordBtn = document.getElementById('recordBtn');
+        this.playBtn = document.getElementById('playBtn');
+        this.conversationElement = document.getElementById('conversation');
+        this.visualizerCanvas = document.getElementById('visualizer');
+        this.visualizerCtx = this.visualizerCanvas.getContext('2d');
+        
+        // Performance stats elements
+        this.lastLatencyElement = document.getElementById('lastLatency');
+        this.avgLatencyElement = document.getElementById('avgLatency');
+        this.minLatencyElement = document.getElementById('minLatency');
+        this.maxLatencyElement = document.getElementById('maxLatency');
+    }
+
+    setupEventListeners() {
+        this.connectBtn.addEventListener('click', () => {
+            if (this.ws?.readyState === WebSocket.OPEN) {
+                this.disconnect();
+            } else {
+                this.connect();
+            }
+        });
+
+        this.recordBtn.addEventListener('click', () => {
+            if (this.isRecording) {
+                this.stopRecording();
+            } else {
+                this.startRecording();
+            }
+        });
+
+        this.playBtn.addEventListener('click', () => {
+            this.playLastResponse();
+        });
+    }
+
+    connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}?callSid=${this.callSid}`;
+        
+        this.ws = new WebSocket(wsUrl);
+        
+        this.ws.onopen = () => {
+            this.updateStatus('connected');
+            this.connectBtn.textContent = 'Disconnect';
+            this.recordBtn.disabled = false;
+            this.addMessage('System', 'Connected to server');
+            this.latencyHistory = [];
+            this.updateLatencyStats();
+        };
+        
+        this.ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                if (message.type === 'audio') {
+                    const latency = this.calculateLatency();
+                    this.handleAudioResponse(message.audio, latency);
+                }
+            } catch (error) {
+                console.error('Error parsing message:', error);
+                this.addMessage('System', 'Error parsing server response');
+            }
+        };
+        
+        this.ws.onclose = () => {
+            this.updateStatus('disconnected');
+            this.connectBtn.textContent = 'Connect';
+            this.recordBtn.disabled = true;
+            this.addMessage('System', 'Disconnected from server');
+        };
+        
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            this.addMessage('System', 'Connection error');
+        };
+    }
+
+    disconnect() {
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+    }
+
+    updateStatus(status) {
+        this.statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        this.statusElement.className = `status ${status}`;
+    }
+
+    async startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: { 
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                } 
+            });
+            
+            this.mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'audio/webm;codecs=opus'
+            });
+            this.audioChunks = [];
+            
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    this.audioChunks.push(event.data);
+                }
+            };
+            
+            this.mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+                this.sendAudio(audioBlob);
+                // Stop all tracks to free up microphone
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            this.mediaRecorder.start();
+            this.isRecording = true;
+            this.recordBtn.textContent = 'Stop Recording';
+            this.recordBtn.classList.add('recording');
+            
+            this.setupAudioVisualization(stream);
+            this.addMessage('You', 'Recording...');
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            this.addMessage('System', 'Microphone access denied or unavailable');
+        }
+    }
+
+    stopRecording() {
+        if (this.mediaRecorder && this.isRecording) {
+            this.mediaRecorder.stop();
+            this.isRecording = false;
+            this.recordBtn.textContent = 'Start Recording';
+            this.recordBtn.classList.remove('recording');
+            
+            if (this.animationFrame) {
+                cancelAnimationFrame(this.animationFrame);
+                this.animationFrame = null;
+            }
+            
+            // Clean up audio context
+            if (this.audioContext) {
+                this.audioContext.close();
+                this.audioContext = null;
+            }
+            
+            this.addMessage('You', 'Processing audio...');
+        }
+    }
+
+    sendAudio(audioBlob) {
+        if (this.ws?.readyState === WebSocket.OPEN) {
+            this.requestStartTime = performance.now();
+            
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64Audio = reader.result.split(',')[1];
+                this.ws.send(JSON.stringify({
+                    type: 'audio',
+                    audio: base64Audio
+                }));
+                this.addMessage('You', 'Audio sent to AI');
+            };
+            reader.readAsDataURL(audioBlob);
+        } else {
+            this.addMessage('System', 'Not connected to server');
+        }
+    }
+
+    handleAudioResponse(audioData, latency) {
+        this.lastAudioData = audioData;
+        
+        if (latency !== null) {
+            this.latencyHistory.push(latency);
+            this.updateLatencyStats();
+        }
+        
+        // Extract text from audio response
+        let responseText = 'AI response received';
+        if (audioData && audioData.text) {
+            responseText = audioData.text;
+        }
+        
+        this.addMessage('AI', responseText, latency);
+        
+        // Auto-play if not already speaking
+        if (!this.isSpeaking) {
+            this.playAudio(audioData);
+        }
+        
+        this.playBtn.disabled = false;
+    }
+
+    calculateLatency() {
+        if (this.requestStartTime) {
+            const latency = Math.round(performance.now() - this.requestStartTime);
+            this.requestStartTime = null;
+            return latency;
+        }
+        return null;
+    }
+
+    updateLatencyStats() {
+        if (this.latencyHistory.length === 0) {
+            ['lastLatency', 'avgLatency', 'minLatency', 'maxLatency'].forEach(id => {
+                document.getElementById(id).textContent = '--';
+            });
+            return;
+        }
+
+        const last = this.latencyHistory[this.latencyHistory.length - 1];
+        const avg = Math.round(this.latencyHistory.reduce((a, b) => a + b, 0) / this.latencyHistory.length);
+        const min = Math.min(...this.latencyHistory);
+        const max = Math.max(...this.latencyHistory);
+
+        this.lastLatencyElement.textContent = `${last}ms`;
+        this.avgLatencyElement.textContent = `${avg}ms`;
+        this.minLatencyElement.textContent = `${min}ms`;
+        this.maxLatencyElement.textContent = `${max}ms`;
+    }
+
+    playAudio(audioData) {
+        if (!('speechSynthesis' in window)) {
+            this.addMessage('System', 'Text-to-speech not supported');
+            return;
+        }
+
+        if (this.currentUtterance) {
+            speechSynthesis.cancel();
+        }
+        
+        let textToSpeak = "Hello, how can I help you today?";
+        
+        if (audioData && audioData.text) {
+            textToSpeak = audioData.text;
+        } else if (typeof audioData === 'string') {
+            textToSpeak = audioData;
+        }
+        
+        this.isSpeaking = true;
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.rate = 1.1;
+        utterance.pitch = 1.0;
+        utterance.volume = 0.9;
+        
+        utterance.onend = () => {
+            this.isSpeaking = false;
+            this.currentUtterance = null;
+        };
+        
+        utterance.onerror = () => {
+            this.isSpeaking = false;
+            this.currentUtterance = null;
+            this.addMessage('System', 'Speech synthesis error');
+        };
+        
+        this.currentUtterance = utterance;
+        speechSynthesis.speak(utterance);
+    }
+
+    playLastResponse() {
+        if (this.lastAudioData && !this.isSpeaking) {
+            this.playAudio(this.lastAudioData);
+            this.addMessage('System', 'Replaying last response...');
+        } else if (this.isSpeaking) {
+            this.addMessage('System', 'Currently speaking...');
+        } else {
+            this.addMessage('System', 'No response to replay');
+        }
+    }
+
+    addMessage(sender, text, latency = null) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${this.getMessageClass(sender)}`;
+        
+        const messageText = document.createElement('div');
+        messageText.textContent = text;
+        
+        const timestamp = document.createElement('div');
+        timestamp.className = 'timestamp';
+        timestamp.textContent = new Date().toLocaleTimeString();
+        
+        messageDiv.appendChild(messageText);
+        messageDiv.appendChild(timestamp);
+        
+        if (latency !== null) {
+            const latencyDiv = document.createElement('div');
+            latencyDiv.className = 'latency';
+            latencyDiv.textContent = `${latency}ms`;
+            messageDiv.appendChild(latencyDiv);
+        }
+        
+        this.conversationElement.appendChild(messageDiv);
+        this.conversationElement.scrollTop = this.conversationElement.scrollHeight;
+        
+        // Limit conversation history to prevent memory issues
+        if (this.conversationElement.children.length > 50) {
+            this.conversationElement.removeChild(this.conversationElement.firstChild);
+        }
+    }
+
+    getMessageClass(sender) {
+        switch (sender) {
+            case 'You': return 'user-message';
+            case 'System': return 'system-message';
+            default: return 'ai-message';
+        }
+    }
+
+    setupAudioVisualization(stream) {
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        this.analyser = this.audioContext.createAnalyser();
+        const source = this.audioContext.createMediaStreamSource(stream);
+        source.connect(this.analyser);
+        
+        this.analyser.fftSize = 128;
+        const bufferLength = this.analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        const draw = () => {
+            if (!this.isRecording) return;
+            
+            this.animationFrame = requestAnimationFrame(draw);
+            this.analyser.getByteFrequencyData(dataArray);
+            
+            this.visualizerCtx.fillStyle = '#f0f0f0';
+            this.visualizerCtx.fillRect(0, 0, this.visualizerCanvas.width, this.visualizerCanvas.height);
+            
+            const barWidth = (this.visualizerCanvas.width / bufferLength) * 2;
+            let x = 0;
+            
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * this.visualizerCanvas.height * 0.8;
+                
+                this.visualizerCtx.fillStyle = `hsl(${(barHeight / this.visualizerCanvas.height) * 120}, 70%, 50%)`;
+                this.visualizerCtx.fillRect(x, this.visualizerCanvas.height - barHeight, barWidth, barHeight);
+                
+                x += barWidth + 1;
+            }
+        };
+        
+        draw();
+    }
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new VoiceChatClient();
+});
+</script>
+</body>
+</html>
