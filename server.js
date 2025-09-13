@@ -18,6 +18,12 @@ const config = {
     apiKey: process.env.GEMINI_API_KEY,
     baseUrl: 'generativelanguage.googleapis.com',
     endpoint: '/v1beta/models/gemini-2.0-flash:generateContent'
+  },
+  elevenlabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY,
+    baseUrl: 'api.elevenlabs.io',
+    voiceId: 'pNInz6obpgDQGcFmaJgB', // Default voice (Adam), you can change this
+    model: 'eleven_monolingual_v1'
   }
 };
 
@@ -193,6 +199,88 @@ class GeminiClient {
   }
 }
 
+class EvenLabsTTS {
+  constructor() {
+    this.apiKey = config.elevenlabs.apiKey;
+    this.baseUrl = config.elevenlabs.baseUrl;
+    this.voiceId = config.elevenlabs.voiceId;
+    this.model = config.elevenlabs.model;
+  }
+
+  async generateSpeech(text, callSid) {
+    if (!this.apiKey) {
+      console.log('EvenLabs API key not found, returning text only');
+      return { text, audioBuffer: null };
+    }
+
+    // Clean the text for better TTS
+    const cleanText = text.replace(/[*_`#]/g, '').trim();
+    if (!cleanText) {
+      return { text, audioBuffer: null };
+    }
+
+    return new Promise((resolve) => {
+      const postData = JSON.stringify({
+        text: cleanText,
+        model_id: this.model,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.5,
+          style: 0.0,
+          use_speaker_boost: true
+        }
+      });
+
+      const options = {
+        hostname: this.baseUrl,
+        path: `/v1/text-to-speech/${this.voiceId}`,
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': this.apiKey,
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        const chunks = [];
+        
+        res.on('data', (chunk) => {
+          chunks.push(chunk);
+        });
+
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            const audioBuffer = Buffer.concat(chunks);
+            console.log(`TTS generated: ${audioBuffer.length} bytes for call ${callSid}`);
+            resolve({
+              text,
+              audioBuffer,
+              format: 'mp3',
+              voiceId: this.voiceId
+            });
+          } else {
+            console.error(`EvenLabs TTS error: ${res.statusCode}`);
+            let errorData = '';
+            chunks.forEach(chunk => errorData += chunk.toString());
+            console.error('Error details:', errorData);
+            resolve({ text, audioBuffer: null });
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('EvenLabs request error:', error);
+        resolve({ text, audioBuffer: null });
+      });
+
+      req.write(postData);
+      req.end();
+    });
+  }
+}
+
 class TwilioWebSocketGateway {
   constructor() {
     this.eventBus = new EventEmitter();
@@ -201,6 +289,7 @@ class TwilioWebSocketGateway {
     this.processing = new Set();
     this.gemini = new GeminiClient();
     this.deepgram = new DeepgramASR();
+    this.tts = new EvenLabsTTS();
     
     this.setupEventHandlers();
   }
@@ -233,6 +322,11 @@ class TwilioWebSocketGateway {
         ws.ping();
       });
     }, 30000);
+
+    console.log(`Server running on port ${config.port}`);
+    console.log(`EvenLabs TTS: ${config.elevenlabs.apiKey ? 'Enabled' : 'Disabled'}`);
+    console.log(`Deepgram ASR: ${config.deepgram.apiKey ? 'Enabled' : 'Disabled'}`);
+    console.log(`Gemini LLM: ${config.gemini.apiKey ? 'Enabled' : 'Disabled'}`);
   }
 
   handleConnection(ws, req) {
@@ -248,6 +342,8 @@ class TwilioWebSocketGateway {
       requestCount: 0,
       lastActivity: Date.now()
     });
+    
+    console.log(`New WebSocket connection: ${callSid}`);
     
     ws.on('pong', () => ws.isAlive = true);
     
@@ -265,16 +361,20 @@ class TwilioWebSocketGateway {
           this.processing.add(callSid);
           this.eventBus.emit('audio', { callSid, audio: message.audio, requestId });
         }
-      } catch (error) {}
+      } catch (error) {
+        console.error('Message parsing error:', error);
+      }
     });
     
     ws.on('close', () => {
+      console.log(`WebSocket closed: ${callSid}`);
       this.sessions.delete(callSid);
       this.processing.delete(callSid);
       this.deepgram.closeStreamingConnection(callSid);
     });
     
-    ws.on('error', () => {
+    ws.on('error', (error) => {
+      console.error(`WebSocket error for ${callSid}:`, error);
       this.sessions.delete(callSid);
       this.processing.delete(callSid);
       this.deepgram.closeStreamingConnection(callSid);
@@ -331,6 +431,7 @@ class TwilioWebSocketGateway {
       });
       
     } catch (error) {
+      console.error('Audio processing error:', error);
       this.processing.delete(callSid);
       const session = this.sessions.get(callSid);
       if (session && session.ws.readyState === WebSocket.OPEN) {
@@ -360,6 +461,7 @@ class TwilioWebSocketGateway {
         model
       });
     } catch (error) {
+      console.error('LLM processing error:', error);
       this.eventBus.emit('tts', { 
         callSid, 
         text: 'I apologize, but I encountered an error processing your request. Please try again.', 
@@ -375,22 +477,60 @@ class TwilioWebSocketGateway {
       return;
     }
 
-    const response = {
-      type: 'audio',
-      audio: {
-        text: text,
-        timestamp: Date.now(),
-        requestId,
-        metadata: {
-          originalTranscript: originalText,
-          transcriptionConfidence: confidence,
-          transcriptionModel: model
+    try {
+      // Generate TTS audio
+      const ttsResult = await this.tts.generateSpeech(text, callSid);
+      
+      const response = {
+        type: 'audio',
+        audio: {
+          text: text,
+          timestamp: Date.now(),
+          requestId,
+          metadata: {
+            originalTranscript: originalText,
+            transcriptionConfidence: confidence,
+            transcriptionModel: model,
+            ttsGenerated: !!ttsResult.audioBuffer,
+            voiceId: ttsResult.voiceId,
+            audioFormat: ttsResult.format
+          }
         }
+      };
+
+      // Add audio data if TTS was successful
+      if (ttsResult.audioBuffer) {
+        response.audio.audioData = ttsResult.audioBuffer.toString('base64');
+        response.audio.audioFormat = ttsResult.format || 'mp3';
+        console.log(`Sending TTS audio: ${ttsResult.audioBuffer.length} bytes`);
       }
-    };
-    
-    session.ws.send(JSON.stringify(response));
-    this.processing.delete(callSid);
+      
+      session.ws.send(JSON.stringify(response));
+      this.processing.delete(callSid);
+      
+    } catch (error) {
+      console.error('TTS processing error:', error);
+      
+      // Send fallback response without audio
+      const fallbackResponse = {
+        type: 'audio',
+        audio: {
+          text: text,
+          timestamp: Date.now(),
+          requestId,
+          metadata: {
+            originalTranscript: originalText,
+            transcriptionConfidence: confidence,
+            transcriptionModel: model,
+            ttsGenerated: false,
+            error: 'TTS generation failed'
+          }
+        }
+      };
+      
+      session.ws.send(JSON.stringify(fallbackResponse));
+      this.processing.delete(callSid);
+    }
   }
 
   async stop() {
@@ -414,12 +554,22 @@ class TwilioWebSocketGateway {
 const gateway = new TwilioWebSocketGateway();
 
 const shutdown = () => {
+  console.log('Shutting down server...');
   gateway.stop().then(() => process.exit(0));
 };
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
-process.on('uncaughtException', shutdown);
-process.on('unhandledRejection', shutdown);
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  shutdown();
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+  shutdown();
+});
 
-gateway.start().catch(() => process.exit(1));
+gateway.start().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});

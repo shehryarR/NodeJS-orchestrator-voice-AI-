@@ -115,6 +115,11 @@ h1 {
     color: white;
 }
 
+#stopAudioBtn {
+    background: #ff9800;
+    color: white;
+}
+
 #uploadBtn {
     background: #9C27B0;
     color: white;
@@ -190,6 +195,42 @@ h1 {
     margin-top: 5px;
 }
 
+.audio-controls {
+    padding: 15px 20px;
+    background: #e8f5e8;
+    border-top: 1px solid #ddd;
+    border-bottom: 1px solid #ddd;
+    text-align: center;
+}
+
+.audio-controls h2 {
+    color: #2e7d32;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+}
+
+.audio-player-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.audio-status {
+    font-size: 0.9rem;
+    color: #666;
+    padding: 8px 16px;
+    background: white;
+    border-radius: 20px;
+    border: 1px solid #ddd;
+}
+
+.audio-status.playing {
+    background: #c8e6c9;
+    border-color: #4CAF50;
+    color: #2e7d32;
+}
+
 .transcript {
     padding: 20px;
     border-top: 1px solid #eee;
@@ -242,6 +283,13 @@ h1 {
 .latency {
     font-size: 0.8rem;
     color: #009688;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+.audio-indicator {
+    font-size: 0.8rem;
+    color: #4CAF50;
     font-weight: bold;
     margin-top: 5px;
 }
@@ -338,6 +386,7 @@ h1 {
 <button id="connectBtn" class="btn">Connect</button>
 <button id="recordBtn" class="btn" disabled>Start Recording</button>
 <button id="playBtn" class="btn" disabled>Play Response</button>
+<button id="stopAudioBtn" class="btn" disabled>Stop Audio</button>
 </div>
 
 <div class="file-upload-section">
@@ -352,6 +401,14 @@ Choose Audio File
 <div class="supported-formats">
 Supported: MP3, WAV, M4A, WEBM, OGG, FLAC
 </div>
+</div>
+</div>
+
+<div class="audio-controls">
+<h2>AI Audio Response</h2>
+<div class="audio-player-section">
+<div class="audio-status" id="audioStatus">No audio available</div>
+<audio id="responseAudio" controls style="display: none; width: 100%; max-width: 400px;"></audio>
 </div>
 </div>
 
@@ -401,6 +458,8 @@ class VoiceChatClient {
         this.isSpeaking = false;
         this.currentUtterance = null;
         this.selectedFile = null;
+        this.currentAudioUrl = null;
+        this.isPlayingAudio = false;
         
         // Performance tracking
         this.requestStartTime = null;
@@ -415,12 +474,15 @@ class VoiceChatClient {
         this.connectBtn = document.getElementById('connectBtn');
         this.recordBtn = document.getElementById('recordBtn');
         this.playBtn = document.getElementById('playBtn');
+        this.stopAudioBtn = document.getElementById('stopAudioBtn');
         this.uploadBtn = document.getElementById('uploadBtn');
         this.audioFileInput = document.getElementById('audioFileInput');
         this.fileInfo = document.getElementById('fileInfo');
         this.conversationElement = document.getElementById('conversation');
         this.visualizerCanvas = document.getElementById('visualizer');
         this.visualizerCtx = this.visualizerCanvas.getContext('2d');
+        this.responseAudio = document.getElementById('responseAudio');
+        this.audioStatus = document.getElementById('audioStatus');
         
         // Performance stats elements
         this.lastLatencyElement = document.getElementById('lastLatency');
@@ -450,12 +512,37 @@ class VoiceChatClient {
             this.playLastResponse();
         });
 
+        this.stopAudioBtn.addEventListener('click', () => {
+            this.stopAllAudio();
+        });
+
         this.uploadBtn.addEventListener('click', () => {
             this.uploadAudioFile();
         });
 
         this.audioFileInput.addEventListener('change', (event) => {
             this.handleFileSelection(event);
+        });
+
+        this.responseAudio.addEventListener('play', () => {
+            this.isPlayingAudio = true;
+            this.audioStatus.textContent = 'Playing AI response...';
+            this.audioStatus.classList.add('playing');
+            this.stopAudioBtn.disabled = false;
+        });
+
+        this.responseAudio.addEventListener('pause', () => {
+            this.isPlayingAudio = false;
+            this.audioStatus.textContent = 'Audio paused';
+            this.audioStatus.classList.remove('playing');
+            this.stopAudioBtn.disabled = true;
+        });
+
+        this.responseAudio.addEventListener('ended', () => {
+            this.isPlayingAudio = false;
+            this.audioStatus.textContent = 'Audio ready to play';
+            this.audioStatus.classList.remove('playing');
+            this.stopAudioBtn.disabled = true;
         });
     }
 
@@ -534,6 +621,8 @@ class VoiceChatClient {
                 if (message.type === 'audio') {
                     const latency = this.calculateLatency();
                     this.handleAudioResponse(message.audio, latency);
+                } else if (message.type === 'error') {
+                    this.addMessage('System', `Error: ${message.error}`);
                 }
             } catch (error) {
                 console.error('Error parsing message:', error);
@@ -560,6 +649,7 @@ class VoiceChatClient {
             this.ws.close();
             this.ws = null;
         }
+        this.stopAllAudio();
     }
 
     updateStatus(status) {
@@ -670,18 +760,97 @@ class VoiceChatClient {
         
         // Extract text from audio response
         let responseText = 'AI response received';
+        let hasAudio = false;
+        
         if (audioData && audioData.text) {
             responseText = audioData.text;
         }
+
+        // Check if we have audio data from EvenLabs
+        if (audioData && audioData.audioData) {
+            hasAudio = true;
+            this.setupAudioResponse(audioData);
+        }
         
-        this.addMessage('AI', responseText, latency);
+        this.addMessage('AI', responseText, latency, hasAudio);
         
-        // Auto-play if not already speaking
-        if (!this.isSpeaking) {
-            this.playAudio(audioData);
+        // Auto-play audio if available and not manually disabled
+        if (hasAudio && !this.isPlayingAudio) {
+            setTimeout(() => {
+                this.playAudioResponse();
+            }, 100); // Small delay to ensure audio is loaded
+        } else if (!hasAudio) {
+            // Fallback to text-to-speech if no audio from server
+            this.playTextToSpeech(responseText);
         }
         
         this.playBtn.disabled = false;
+    }
+
+    setupAudioResponse(audioData) {
+        // Clean up previous audio URL
+        if (this.currentAudioUrl) {
+            URL.revokeObjectURL(this.currentAudioUrl);
+        }
+
+        // Create audio blob from base64 data
+        const audioFormat = audioData.audioFormat || 'mp3';
+        const mimeType = audioFormat === 'mp3' ? 'audio/mpeg' : `audio/${audioFormat}`;
+        
+        const audioBytes = atob(audioData.audioData);
+        const audioArray = new Uint8Array(audioBytes.length);
+        for (let i = 0; i < audioBytes.length; i++) {
+            audioArray[i] = audioBytes.charCodeAt(i);
+        }
+        
+        const audioBlob = new Blob([audioArray], { type: mimeType });
+        this.currentAudioUrl = URL.createObjectURL(audioBlob);
+        
+        // Set up audio element
+        this.responseAudio.src = this.currentAudioUrl;
+        this.responseAudio.style.display = 'block';
+        this.audioStatus.textContent = 'AI audio response ready';
+        
+        console.log(`Audio response loaded: ${audioFormat}, ${audioArray.length} bytes`);
+    }
+
+    playAudioResponse() {
+        if (this.currentAudioUrl && this.responseAudio.src) {
+            this.responseAudio.play().catch(error => {
+                console.error('Error playing audio:', error);
+                this.addMessage('System', 'Error playing audio response');
+                this.audioStatus.textContent = 'Error playing audio';
+            });
+        }
+    }
+
+    playTextToSpeech(text) {
+        if (!('speechSynthesis' in window)) {
+            return;
+        }
+
+        if (this.currentUtterance) {
+            speechSynthesis.cancel();
+        }
+        
+        this.isSpeaking = true;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.1;
+        utterance.pitch = 1.0;
+        utterance.volume = 0.9;
+        
+        utterance.onend = () => {
+            this.isSpeaking = false;
+            this.currentUtterance = null;
+        };
+        
+        utterance.onerror = () => {
+            this.isSpeaking = false;
+            this.currentUtterance = null;
+        };
+        
+        this.currentUtterance = utterance;
+        speechSynthesis.speak(utterance);
     }
 
     calculateLatency() {
@@ -712,57 +881,38 @@ class VoiceChatClient {
         this.maxLatencyElement.textContent = `${max}ms`;
     }
 
-    playAudio(audioData) {
-        if (!('speechSynthesis' in window)) {
-            this.addMessage('System', 'Text-to-speech not supported');
-            return;
-        }
-
-        if (this.currentUtterance) {
-            speechSynthesis.cancel();
-        }
-        
-        let textToSpeak = "Hello, how can I help you today?";
-        
-        if (audioData && audioData.text) {
-            textToSpeak = audioData.text;
-        } else if (typeof audioData === 'string') {
-            textToSpeak = audioData;
-        }
-        
-        this.isSpeaking = true;
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.rate = 1.1;
-        utterance.pitch = 1.0;
-        utterance.volume = 0.9;
-        
-        utterance.onend = () => {
-            this.isSpeaking = false;
-            this.currentUtterance = null;
-        };
-        
-        utterance.onerror = () => {
-            this.isSpeaking = false;
-            this.currentUtterance = null;
-            this.addMessage('System', 'Speech synthesis error');
-        };
-        
-        this.currentUtterance = utterance;
-        speechSynthesis.speak(utterance);
-    }
-
     playLastResponse() {
-        if (this.lastAudioData && !this.isSpeaking) {
-            this.playAudio(this.lastAudioData);
-            this.addMessage('System', 'Replaying last response...');
-        } else if (this.isSpeaking) {
-            this.addMessage('System', 'Currently speaking...');
+        if (this.currentAudioUrl) {
+            this.playAudioResponse();
+            this.addMessage('System', 'Replaying last audio response...');
+        } else if (this.lastAudioData && this.lastAudioData.text) {
+            this.playTextToSpeech(this.lastAudioData.text);
+            this.addMessage('System', 'Playing last response with TTS...');
         } else {
             this.addMessage('System', 'No response to replay');
         }
     }
 
-    addMessage(sender, text, latency = null) {
+    stopAllAudio() {
+        // Stop HTML5 audio
+        if (this.responseAudio && !this.responseAudio.paused) {
+            this.responseAudio.pause();
+            this.responseAudio.currentTime = 0;
+        }
+
+        // Stop speech synthesis
+        if (this.isSpeaking && 'speechSynthesis' in window) {
+            speechSynthesis.cancel();
+            this.isSpeaking = false;
+            this.currentUtterance = null;
+        }
+
+        this.audioStatus.textContent = 'Audio stopped';
+        this.audioStatus.classList.remove('playing');
+        this.stopAudioBtn.disabled = true;
+    }
+
+    addMessage(sender, text, latency = null, hasAudio = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${this.getMessageClass(sender)}`;
         
@@ -781,6 +931,13 @@ class VoiceChatClient {
             latencyDiv.className = 'latency';
             latencyDiv.textContent = `${latency}ms`;
             messageDiv.appendChild(latencyDiv);
+        }
+
+        if (hasAudio) {
+            const audioDiv = document.createElement('div');
+            audioDiv.className = 'audio-indicator';
+            audioDiv.textContent = '🔊 Audio response';
+            messageDiv.appendChild(audioDiv);
         }
         
         this.conversationElement.appendChild(messageDiv);
