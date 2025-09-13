@@ -37,7 +37,10 @@ class DeepgramASR {
   }
 
   async transcribeAudio(audioBuffer, callSid) {
+    const startTime = Date.now();
+    
     if (!this.client) {
+      console.log(`[${callSid}] ASR: No API key, using fallback (0ms)`);
       return { text: "Hello, how can I help you today?" };
     }
 
@@ -58,6 +61,8 @@ class DeepgramASR {
         const transcript = response.result?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
         
         if (!transcript?.trim()) {
+          const duration = Date.now() - startTime;
+          console.log(`[${callSid}] ASR: Empty transcript (${duration}ms)`);
           return { text: "", confidence: 0, model: model };
         }
 
@@ -66,6 +71,9 @@ class DeepgramASR {
         if (this.currentModel !== model) {
           this.currentModel = model;
         }
+        
+        const duration = Date.now() - startTime;
+        console.log(`[${callSid}] ASR: Success "${transcript.slice(0, 50)}..." (${duration}ms, conf: ${Math.round(confidence * 100)}%)`);
         
         return { 
           text: transcript.trim(), 
@@ -80,6 +88,9 @@ class DeepgramASR {
         continue;
       }
     }
+    
+    const duration = Date.now() - startTime;
+    console.log(`[${callSid}] ASR: Failed all models (${duration}ms)`);
     
     return { 
       text: "", 
@@ -159,7 +170,10 @@ class GeminiClient {
   }
 
   async generateContent(prompt, callSid) {
+    const startTime = Date.now();
+    
     if (!this.apiKey) {
+      console.log(`[${callSid}] LLM: No API key, using echo (0ms)`);
       return `Echo: "${prompt}"`;
     }
 
@@ -178,21 +192,30 @@ class GeminiClient {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
+          const duration = Date.now() - startTime;
           try {
             if (res.statusCode !== 200) {
+              console.log(`[${callSid}] LLM: Error ${res.statusCode} (${duration}ms)`);
               resolve(`Processing error (${res.statusCode}). Please try again.`);
               return;
             }
             const response = JSON.parse(data);
             const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
-            resolve(text || "I couldn't generate a response.");
+            const responseText = text || "I couldn't generate a response.";
+            console.log(`[${callSid}] LLM: Success "${responseText.slice(0, 50)}..." (${duration}ms)`);
+            resolve(responseText);
           } catch (error) {
+            console.log(`[${callSid}] LLM: Parse error (${duration}ms)`);
             resolve("I encountered an error processing your request.");
           }
         });
       });
 
-      req.on('error', () => resolve("Connection error. Please try again."));
+      req.on('error', () => {
+        const duration = Date.now() - startTime;
+        console.log(`[${callSid}] LLM: Connection error (${duration}ms)`);
+        resolve("Connection error. Please try again.");
+      });
       req.write(postData);
       req.end();
     });
@@ -208,14 +231,18 @@ class EvenLabsTTS {
   }
 
   async generateSpeech(text, callSid) {
+    const startTime = Date.now();
+    
     if (!this.apiKey) {
-      console.log('EvenLabs API key not found, returning text only');
+      console.log(`[${callSid}] TTS: No API key, text only (0ms)`);
       return { text, audioBuffer: null };
     }
 
     // Clean the text for better TTS
     const cleanText = text.replace(/[*_`#]/g, '').trim();
     if (!cleanText) {
+      const duration = Date.now() - startTime;
+      console.log(`[${callSid}] TTS: Empty text (${duration}ms)`);
       return { text, audioBuffer: null };
     }
 
@@ -251,9 +278,10 @@ class EvenLabsTTS {
         });
 
         res.on('end', () => {
+          const duration = Date.now() - startTime;
           if (res.statusCode === 200) {
             const audioBuffer = Buffer.concat(chunks);
-            console.log(`TTS generated: ${audioBuffer.length} bytes for call ${callSid}`);
+            console.log(`[${callSid}] TTS: Success ${audioBuffer.length} bytes (${duration}ms)`);
             resolve({
               text,
               audioBuffer,
@@ -261,17 +289,18 @@ class EvenLabsTTS {
               voiceId: this.voiceId
             });
           } else {
-            console.error(`EvenLabs TTS error: ${res.statusCode}`);
+            console.log(`[${callSid}] TTS: Error ${res.statusCode} (${duration}ms)`);
             let errorData = '';
             chunks.forEach(chunk => errorData += chunk.toString());
-            console.error('Error details:', errorData);
+            console.error('TTS Error details:', errorData);
             resolve({ text, audioBuffer: null });
           }
         });
       });
 
       req.on('error', (error) => {
-        console.error('EvenLabs request error:', error);
+        const duration = Date.now() - startTime;
+        console.log(`[${callSid}] TTS: Request error (${duration}ms)`, error.message);
         resolve({ text, audioBuffer: null });
       });
 
@@ -343,7 +372,7 @@ class TwilioWebSocketGateway {
       lastActivity: Date.now()
     });
     
-    console.log(`New WebSocket connection: ${callSid}`);
+    console.log(`[${callSid}] New WebSocket connection`);
     
     ws.on('pong', () => ws.isAlive = true);
     
@@ -359,22 +388,23 @@ class TwilioWebSocketGateway {
           
           const requestId = `${callSid}-${Date.now()}`;
           this.processing.add(callSid);
+          console.log(`[${callSid}] Starting audio processing (${Buffer.from(message.audio, 'base64').length} bytes)`);
           this.eventBus.emit('audio', { callSid, audio: message.audio, requestId });
         }
       } catch (error) {
-        console.error('Message parsing error:', error);
+        console.error(`[${callSid}] Message parsing error:`, error);
       }
     });
     
     ws.on('close', () => {
-      console.log(`WebSocket closed: ${callSid}`);
+      console.log(`[${callSid}] WebSocket closed`);
       this.sessions.delete(callSid);
       this.processing.delete(callSid);
       this.deepgram.closeStreamingConnection(callSid);
     });
     
     ws.on('error', (error) => {
-      console.error(`WebSocket error for ${callSid}:`, error);
+      console.error(`[${callSid}] WebSocket error:`, error);
       this.sessions.delete(callSid);
       this.processing.delete(callSid);
       this.deepgram.closeStreamingConnection(callSid);
@@ -382,10 +412,13 @@ class TwilioWebSocketGateway {
   }
 
   async processAudio({ callSid, audio, requestId }) {
+    const pipelineStart = Date.now();
+    
     try {
       const audioBuffer = Buffer.from(audio, 'base64');
       
       if (audioBuffer.length < 1000) {
+        console.log(`[${callSid}] Audio too short: ${audioBuffer.length} bytes`);
         this.processing.delete(callSid);
         return;
       }
@@ -427,11 +460,12 @@ class TwilioWebSocketGateway {
         text: transcription.text, 
         requestId,
         confidence: transcription.confidence,
-        model: transcription.model
+        model: transcription.model,
+        pipelineStart
       });
       
     } catch (error) {
-      console.error('Audio processing error:', error);
+      console.error(`[${callSid}] Audio processing error:`, error);
       this.processing.delete(callSid);
       const session = this.sessions.get(callSid);
       if (session && session.ws.readyState === WebSocket.OPEN) {
@@ -444,7 +478,7 @@ class TwilioWebSocketGateway {
     }
   }
 
-  async processLLM({ callSid, text, requestId, confidence, model }) {
+  async processLLM({ callSid, text, requestId, confidence, model, pipelineStart }) {
     try {
       let enhancedText = text;
       if (confidence !== undefined && confidence < 0.8) {
@@ -458,19 +492,21 @@ class TwilioWebSocketGateway {
         requestId,
         originalText: text,
         confidence,
-        model
+        model,
+        pipelineStart
       });
     } catch (error) {
-      console.error('LLM processing error:', error);
+      console.error(`[${callSid}] LLM processing error:`, error);
       this.eventBus.emit('tts', { 
         callSid, 
         text: 'I apologize, but I encountered an error processing your request. Please try again.', 
-        requestId 
+        requestId,
+        pipelineStart
       });
     }
   }
 
-  async processTTS({ callSid, text, requestId, originalText, confidence, model }) {
+  async processTTS({ callSid, text, requestId, originalText, confidence, model, pipelineStart }) {
     const session = this.sessions.get(callSid);
     if (!session || session.ws.readyState !== WebSocket.OPEN) {
       this.processing.delete(callSid);
@@ -480,6 +516,9 @@ class TwilioWebSocketGateway {
     try {
       // Generate TTS audio
       const ttsResult = await this.tts.generateSpeech(text, callSid);
+      
+      const totalDuration = Date.now() - (pipelineStart || Date.now());
+      console.log(`[${callSid}] Pipeline complete: ${totalDuration}ms total`);
       
       const response = {
         type: 'audio',
@@ -493,7 +532,8 @@ class TwilioWebSocketGateway {
             transcriptionModel: model,
             ttsGenerated: !!ttsResult.audioBuffer,
             voiceId: ttsResult.voiceId,
-            audioFormat: ttsResult.format
+            audioFormat: ttsResult.format,
+            totalProcessingTime: totalDuration
           }
         }
       };
@@ -502,16 +542,16 @@ class TwilioWebSocketGateway {
       if (ttsResult.audioBuffer) {
         response.audio.audioData = ttsResult.audioBuffer.toString('base64');
         response.audio.audioFormat = ttsResult.format || 'mp3';
-        console.log(`Sending TTS audio: ${ttsResult.audioBuffer.length} bytes`);
       }
       
       session.ws.send(JSON.stringify(response));
       this.processing.delete(callSid);
       
     } catch (error) {
-      console.error('TTS processing error:', error);
+      console.error(`[${callSid}] TTS processing error:`, error);
       
       // Send fallback response without audio
+      const totalDuration = Date.now() - (pipelineStart || Date.now());
       const fallbackResponse = {
         type: 'audio',
         audio: {
@@ -523,7 +563,8 @@ class TwilioWebSocketGateway {
             transcriptionConfidence: confidence,
             transcriptionModel: model,
             ttsGenerated: false,
-            error: 'TTS generation failed'
+            error: 'TTS generation failed',
+            totalProcessingTime: totalDuration
           }
         }
       };
