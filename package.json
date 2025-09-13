@@ -15,11 +15,13 @@
     "llm",
     "tts",
     "voice",
-    "chat"
+    "chat",
+    "deepgram"
   ],
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@deepgram/sdk": "^3.7.0",
     "ws": "^8.14.2",
     "eventemitter2": "^6.4.7",
     "uuid": "^9.0.1",

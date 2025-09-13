@@ -57,6 +57,7 @@ h1 {
 
 .controls {
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     gap: 15px;
     padding: 20px;
@@ -73,6 +74,7 @@ h1 {
     transition: all 0.3s ease;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    min-width: 120px;
 }
 
 .btn:hover {
@@ -111,6 +113,81 @@ h1 {
 #playBtn {
     background: #4CAF50;
     color: white;
+}
+
+#uploadBtn {
+    background: #9C27B0;
+    color: white;
+}
+
+.file-upload-section {
+    padding: 15px 20px;
+    background: #f9f9f9;
+    border-top: 1px solid #ddd;
+    border-bottom: 1px solid #ddd;
+}
+
+.file-upload-section h2 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+.file-upload-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.file-input-wrapper {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+    background: #673AB7;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 25px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+}
+
+.file-input-wrapper:hover {
+    background: #5E35B1;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+}
+
+#audioFileInput {
+    position: absolute;
+    left: -9999px;
+}
+
+.file-info {
+    text-align: center;
+    font-size: 0.9rem;
+    color: #666;
+    padding: 10px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    min-width: 250px;
+}
+
+.file-selected {
+    background: #e8f5e8 !important;
+    border-color: #4CAF50 !important;
+    color: #2e7d32;
+}
+
+.supported-formats {
+    font-size: 0.8rem;
+    color: #666;
+    text-align: center;
+    margin-top: 5px;
 }
 
 .transcript {
@@ -230,6 +307,27 @@ h1 {
     max-width: 400px;
     height: 100px;
 }
+
+/* Responsive design */
+@media (max-width: 600px) {
+    .controls {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .btn {
+        width: 200px;
+    }
+    
+    .file-upload-container {
+        width: 100%;
+    }
+    
+    .file-info {
+        min-width: auto;
+        width: 100%;
+    }
+}
 </style>
 </head>
 <body>
@@ -241,6 +339,22 @@ h1 {
 <button id="recordBtn" class="btn" disabled>Start Recording</button>
 <button id="playBtn" class="btn" disabled>Play Response</button>
 </div>
+
+<div class="file-upload-section">
+<h2>Upload Audio File</h2>
+<div class="file-upload-container">
+<label for="audioFileInput" class="file-input-wrapper">
+Choose Audio File
+</label>
+<input type="file" id="audioFileInput" accept="audio/*" />
+<div class="file-info" id="fileInfo">No file selected</div>
+<button id="uploadBtn" class="btn" disabled>Upload & Send</button>
+<div class="supported-formats">
+Supported: MP3, WAV, M4A, WEBM, OGG, FLAC
+</div>
+</div>
+</div>
+
 <div class="latency-stats">
 <h3>Performance Stats</h3>
 <div class="stats-grid">
@@ -286,6 +400,7 @@ class VoiceChatClient {
         this.lastAudioData = null;
         this.isSpeaking = false;
         this.currentUtterance = null;
+        this.selectedFile = null;
         
         // Performance tracking
         this.requestStartTime = null;
@@ -300,6 +415,9 @@ class VoiceChatClient {
         this.connectBtn = document.getElementById('connectBtn');
         this.recordBtn = document.getElementById('recordBtn');
         this.playBtn = document.getElementById('playBtn');
+        this.uploadBtn = document.getElementById('uploadBtn');
+        this.audioFileInput = document.getElementById('audioFileInput');
+        this.fileInfo = document.getElementById('fileInfo');
         this.conversationElement = document.getElementById('conversation');
         this.visualizerCanvas = document.getElementById('visualizer');
         this.visualizerCtx = this.visualizerCanvas.getContext('2d');
@@ -331,6 +449,67 @@ class VoiceChatClient {
         this.playBtn.addEventListener('click', () => {
             this.playLastResponse();
         });
+
+        this.uploadBtn.addEventListener('click', () => {
+            this.uploadAudioFile();
+        });
+
+        this.audioFileInput.addEventListener('change', (event) => {
+            this.handleFileSelection(event);
+        });
+    }
+
+    handleFileSelection(event) {
+        const file = event.target.files[0];
+        if (file) {
+            this.selectedFile = file;
+            const fileSize = (file.size / 1024 / 1024).toFixed(2);
+            const fileName = file.name.length > 30 ? file.name.substring(0, 27) + '...' : file.name;
+            
+            this.fileInfo.textContent = `Selected: ${fileName} (${fileSize} MB)`;
+            this.fileInfo.classList.add('file-selected');
+            
+            // Enable upload button if connected
+            this.uploadBtn.disabled = !(this.ws?.readyState === WebSocket.OPEN);
+            
+            this.addMessage('System', `File selected: ${file.name} (${fileSize} MB)`);
+        } else {
+            this.selectedFile = null;
+            this.fileInfo.textContent = 'No file selected';
+            this.fileInfo.classList.remove('file-selected');
+            this.uploadBtn.disabled = true;
+        }
+    }
+
+    uploadAudioFile() {
+        if (!this.selectedFile || this.ws?.readyState !== WebSocket.OPEN) {
+            this.addMessage('System', 'Please select a file and ensure connection');
+            return;
+        }
+
+        const maxSize = 25 * 1024 * 1024; // 25MB limit
+        if (this.selectedFile.size > maxSize) {
+            this.addMessage('System', 'File too large. Maximum size is 25MB');
+            return;
+        }
+
+        this.uploadBtn.disabled = true;
+        this.uploadBtn.textContent = 'Uploading...';
+        this.addMessage('You', `Uploading: ${this.selectedFile.name}`);
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64Audio = reader.result.split(',')[1];
+            this.sendAudioData(base64Audio, 'file');
+        };
+        
+        reader.onerror = () => {
+            this.addMessage('System', 'Error reading file');
+            this.uploadBtn.disabled = false;
+            this.uploadBtn.textContent = 'Upload & Send';
+        };
+        
+        reader.readAsDataURL(this.selectedFile);
     }
 
     connect() {
@@ -343,6 +522,7 @@ class VoiceChatClient {
             this.updateStatus('connected');
             this.connectBtn.textContent = 'Disconnect';
             this.recordBtn.disabled = false;
+            this.uploadBtn.disabled = !this.selectedFile;
             this.addMessage('System', 'Connected to server');
             this.latencyHistory = [];
             this.updateLatencyStats();
@@ -365,6 +545,7 @@ class VoiceChatClient {
             this.updateStatus('disconnected');
             this.connectBtn.textContent = 'Connect';
             this.recordBtn.disabled = true;
+            this.uploadBtn.disabled = true;
             this.addMessage('System', 'Disconnected from server');
         };
         
@@ -451,20 +632,31 @@ class VoiceChatClient {
 
     sendAudio(audioBlob) {
         if (this.ws?.readyState === WebSocket.OPEN) {
-            this.requestStartTime = performance.now();
-            
             const reader = new FileReader();
             reader.onload = () => {
                 const base64Audio = reader.result.split(',')[1];
-                this.ws.send(JSON.stringify({
-                    type: 'audio',
-                    audio: base64Audio
-                }));
+                this.sendAudioData(base64Audio, 'live');
                 this.addMessage('You', 'Audio sent to AI');
             };
             reader.readAsDataURL(audioBlob);
         } else {
             this.addMessage('System', 'Not connected to server');
+        }
+    }
+
+    sendAudioData(base64Audio, source) {
+        this.requestStartTime = performance.now();
+        
+        this.ws.send(JSON.stringify({
+            type: 'audio',
+            audio: base64Audio,
+            source: source
+        }));
+
+        if (source === 'file') {
+            this.uploadBtn.textContent = 'Upload & Send';
+            this.uploadBtn.disabled = false;
+            this.addMessage('You', 'File sent to AI');
         }
     }
 

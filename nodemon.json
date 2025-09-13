@@ -1,0 +1,14 @@
+{
+  "watch": [
+    "."
+  ],
+  "ignore": [
+    "node_modules",
+    "audio_dumps",
+    "*.log",
+    "*.tmp",
+    "*.temp"
+  ],
+  "ext": "js,json",
+  "exec": "node server.js"
+}
