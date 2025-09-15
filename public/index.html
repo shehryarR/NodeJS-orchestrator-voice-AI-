@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Voice Chat with LLM</title>
+<title>Live Voice Call with AI</title>
 <style>
 * {
     margin: 0;
@@ -19,7 +19,7 @@ body {
 }
 
 .container {
-    max-width: 800px;
+    max-width: 900px;
     margin: 0 auto;
     background: white;
     border-radius: 15px;
@@ -36,50 +36,79 @@ h1 {
     font-size: 1.8rem;
 }
 
-.status {
+.call-status {
     text-align: center;
-    padding: 15px;
+    padding: 20px;
     font-weight: bold;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     text-transform: uppercase;
     letter-spacing: 1px;
+    transition: all 0.3s ease;
 }
 
-.status.connected {
-    background: #4CAF50;
-    color: white;
-}
-
-.status.disconnected {
+.call-status.disconnected {
     background: #f44336;
     color: white;
 }
 
-.controls {
+.call-status.connecting {
+    background: #ff9800;
+    color: white;
+}
+
+.call-status.connected {
+    background: #4CAF50;
+    color: white;
+}
+
+.call-status.listening {
+    background: #2196F3;
+    color: white;
+    animation: pulse 1.5s infinite;
+}
+
+.call-status.processing {
+    background: #9C27B0;
+    color: white;
+    animation: pulse 1s infinite;
+}
+
+.call-status.speaking {
+    background: #FF5722;
+    color: white;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.02); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+.call-controls {
     display: flex;
-    flex-wrap: wrap;
     justify-content: center;
-    gap: 15px;
+    gap: 20px;
     padding: 20px;
     background: #f5f5f5;
 }
 
 .btn {
-    padding: 12px 24px;
+    padding: 15px 30px;
     border: none;
-    border-radius: 25px;
-    font-size: 1rem;
+    border-radius: 50px;
+    font-size: 1.1rem;
     font-weight: bold;
     cursor: pointer;
     transition: all 0.3s ease;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    min-width: 120px;
+    letter-spacing: 1px;
+    min-width: 140px;
 }
 
-.btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+.btn:hover:not(:disabled) {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
 }
 
 .btn:disabled {
@@ -89,297 +118,293 @@ h1 {
     box-shadow: none;
 }
 
-#connectBtn {
-    background: #2196F3;
-    color: white;
-}
-
-#recordBtn {
-    background: #FF5722;
-    color: white;
-}
-
-#recordBtn.recording {
-    background: #f44336;
-    animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-}
-
-#playBtn {
+#startCallBtn {
     background: #4CAF50;
     color: white;
 }
 
-#stopAudioBtn {
-    background: #ff9800;
+#endCallBtn {
+    background: #f44336;
     color: white;
 }
 
-#uploadBtn {
-    background: #9C27B0;
-    color: white;
-}
-
-#downloadBtn {
-    background: #607D8B;
-    color: white;
-}
-
-.file-upload-section {
-    padding: 15px 20px;
-    background: #f9f9f9;
-    border-top: 1px solid #ddd;
-    border-bottom: 1px solid #ddd;
-}
-
-.file-upload-section h2 {
-    color: #333;
-    margin-bottom: 15px;
-    font-size: 1.2rem;
-    text-align: center;
-}
-
-.file-upload-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 15px;
-}
-
-.file-input-wrapper {
-    position: relative;
-    display: inline-block;
-    cursor: pointer;
-    background: #673AB7;
-    color: white;
-    padding: 12px 24px;
-    border-radius: 25px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    transition: all 0.3s ease;
-}
-
-.file-input-wrapper:hover {
-    background: #5E35B1;
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-}
-
-#audioFileInput {
-    position: absolute;
-    left: -9999px;
-}
-
-.file-info {
-    text-align: center;
-    font-size: 0.9rem;
-    color: #666;
-    padding: 10px;
-    background: white;
-    border-radius: 8px;
-    border: 1px solid #ddd;
-    min-width: 250px;
-}
-
-.file-selected {
-    background: #e8f5e8 !important;
-    border-color: #4CAF50 !important;
-    color: #2e7d32;
-}
-
-.supported-formats {
-    font-size: 0.8rem;
-    color: #666;
-    text-align: center;
-    margin-top: 5px;
-}
-
-.audio-controls {
-    padding: 15px 20px;
-    background: #e8f5e8;
-    border-top: 1px solid #ddd;
-    border-bottom: 1px solid #ddd;
-    text-align: center;
-}
-
-.audio-controls h2 {
-    color: #2e7d32;
-    margin-bottom: 15px;
-    font-size: 1.2rem;
-}
-
-.audio-player-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 15px;
-}
-
-.audio-controls-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 10px;
-}
-
-.audio-status {
-    font-size: 0.9rem;
-    color: #666;
-    padding: 8px 16px;
-    background: white;
-    border-radius: 20px;
-    border: 1px solid #ddd;
-}
-
-.audio-status.playing {
-    background: #c8e6c9;
-    border-color: #4CAF50;
-    color: #2e7d32;
-}
-
-.download-info {
-    font-size: 0.8rem;
-    color: #666;
-    text-align: center;
-    margin-top: 5px;
-    font-style: italic;
-}
-
-.transcript {
+.audio-indicators {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
     padding: 20px;
-    border-top: 1px solid #eee;
+    background: #f9f9f9;
 }
 
-.transcript h2 {
+.indicator-section {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.indicator-section h3 {
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.1rem;
+    text-align: center;
+}
+
+.volume-indicator {
+    height: 100px;
+    background: #f0f0f0;
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    border: 2px solid #ddd;
+}
+
+.volume-bar {
+    width: 100%;
+    background: linear-gradient(to top, #4CAF50, #8BC34A, #CDDC39, #FFEB3B, #FF9800, #FF5722);
+    border-radius: 8px;
+    transition: height 0.1s ease;
+    position: absolute;
+    bottom: 0;
+}
+
+.speech-indicator {
+    text-align: center;
+    padding: 15px;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 1rem;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.speech-indicator.idle {
+    background: #e0e0e0;
+    color: #666;
+}
+
+.speech-indicator.listening {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.speech-indicator.speaking {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.speech-indicator.processing {
+    background: #f3e5f5;
+    color: #7b1fa2;
+}
+
+.live-transcript {
+    padding: 20px;
+    border-top: 1px solid #ddd;
+}
+
+.live-transcript h2 {
     color: #333;
     margin-bottom: 15px;
     font-size: 1.3rem;
-}
-
-.conversation {
-    max-height: 400px;
-    overflow-y: auto;
-    border: 1px solid #ddd;
-    border-radius: 10px;
-    padding: 15px;
-    background: #fafafa;
-}
-
-.message {
-    margin: 10px 0;
-    padding: 12px;
-    border-radius: 10px;
-    position: relative;
-}
-
-.user-message {
-    background: #e3f2fd;
-    border-left: 4px solid #2196F3;
-}
-
-.ai-message {
-    background: #f3e5f5;
-    border-left: 4px solid #9c27b0;
-}
-
-.system-message {
-    background: #fff3e0;
-    border-left: 4px solid #ff9800;
-    font-style: italic;
-}
-
-.timestamp {
-    font-size: 0.8rem;
-    color: #666;
-    margin-top: 5px;
-}
-
-.latency {
-    font-size: 0.8rem;
-    color: #009688;
-    font-weight: bold;
-    margin-top: 5px;
-}
-
-.audio-indicator {
-    font-size: 0.8rem;
-    color: #4CAF50;
-    font-weight: bold;
-    margin-top: 5px;
-}
-
-.latency-stats {
-    padding: 15px 20px;
-    background: #e8f5e8;
-    border-top: 1px solid #ddd;
     text-align: center;
 }
 
-.latency-stats h3 {
+.transcript-container {
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 20px;
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+}
+
+.transcript-line {
+    margin: 15px 0;
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 4px solid;
+    position: relative;
+}
+
+.transcript-line.user {
+    background: #e3f2fd;
+    border-left-color: #2196F3;
+}
+
+.transcript-line.ai {
+    background: #f3e5f5;
+    border-left-color: #9c27b0;
+}
+
+.transcript-line.interim {
+    background: #fff3e0;
+    border-left-color: #ff9800;
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.transcript-line.system {
+    background: #e8f5e8;
+    border-left-color: #4caf50;
+    font-size: 0.9rem;
+}
+
+.transcript-text {
+    font-size: 1rem;
+    line-height: 1.4;
+    margin-bottom: 5px;
+}
+
+.transcript-meta {
+    font-size: 0.8rem;
+    color: #666;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.confidence-badge {
+    background: #4caf50;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: bold;
+}
+
+.confidence-badge.low {
+    background: #ff9800;
+}
+
+.confidence-badge.very-low {
+    background: #f44336;
+}
+
+.performance-stats {
+    padding: 20px;
+    background: #e8f5e8;
+    border-top: 1px solid #ddd;
+}
+
+.performance-stats h3 {
     color: #2e7d32;
-    margin-bottom: 10px;
-    font-size: 1.1rem;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+    text-align: center;
 }
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 15px;
-    margin-top: 10px;
 }
 
-.stat-item {
+.stat-card {
     background: white;
-    padding: 10px;
+    padding: 15px;
     border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     border: 1px solid #c8e6c9;
 }
 
 .stat-label {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     color: #666;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-bottom: 5px;
 }
 
 .stat-value {
-    font-size: 1.2rem;
+    font-size: 1.4rem;
     font-weight: bold;
     color: #2e7d32;
-    margin-top: 2px;
 }
 
-.audio-visualization {
+.audio-controls {
     padding: 20px;
-    text-align: center;
-    border-top: 1px solid #eee;
+    background: #f0f8ff;
+    border-top: 1px solid #ddd;
 }
 
-.audio-visualization h2 {
-    color: #333;
+.audio-controls h3 {
+    color: #1565c0;
     margin-bottom: 15px;
-    font-size: 1.3rem;
+    font-size: 1.2rem;
+    text-align: center;
 }
 
-#visualizer {
-    border: 2px solid #ddd;
-    border-radius: 10px;
-    background: #f0f0f0;
-    width: 100%;
-    max-width: 400px;
-    height: 100px;
+.audio-player {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+}
+
+.audio-status {
+    padding: 10px 20px;
+    background: white;
+    border-radius: 20px;
+    border: 1px solid #ddd;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.audio-status.playing {
+    background: #c8e6c9;
+    border-color: #4caf50;
+    color: #2e7d32;
+}
+
+.audio-controls-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.audio-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.audio-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.audio-btn.play {
+    background: #4caf50;
+    color: white;
+}
+
+.audio-btn.stop {
+    background: #f44336;
+    color: white;
+}
+
+.audio-btn.download {
+    background: #2196f3;
+    color: white;
 }
 
 /* Responsive design */
-@media (max-width: 600px) {
-    .controls {
+@media (max-width: 768px) {
+    .audio-indicators {
+        grid-template-columns: 1fr;
+    }
+    
+    .call-controls {
         flex-direction: column;
         align-items: center;
     }
@@ -388,13 +413,14 @@ h1 {
         width: 200px;
     }
     
-    .file-upload-container {
-        width: 100%;
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
     }
-    
-    .file-info {
-        min-width: auto;
-        width: 100%;
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
     }
     
     .audio-controls-row {
@@ -406,159 +432,143 @@ h1 {
 </head>
 <body>
 <div class="container">
-<h1>Voice Chat with LLM</h1>
-<div class="status" id="status">Disconnected</div>
-<div class="controls">
-<button id="connectBtn" class="btn">Connect</button>
-<button id="recordBtn" class="btn" disabled>Start Recording</button>
-<button id="playBtn" class="btn" disabled>Play Response</button>
-<button id="stopAudioBtn" class="btn" disabled>Stop Audio</button>
+<h1>Live Voice Call with AI</h1>
+
+<div class="call-status" id="callStatus">Disconnected</div>
+
+<div class="call-controls">
+<button id="startCallBtn" class="btn">Start Call</button>
+<button id="endCallBtn" class="btn" disabled>End Call</button>
 </div>
 
-<div class="file-upload-section">
-<h2>Upload Audio File</h2>
-<div class="file-upload-container">
-<label for="audioFileInput" class="file-input-wrapper">
-Choose Audio File
-</label>
-<input type="file" id="audioFileInput" accept="audio/*" />
-<div class="file-info" id="fileInfo">No file selected</div>
-<button id="uploadBtn" class="btn" disabled>Upload & Send</button>
-<div class="supported-formats">
-Supported: MP3, WAV, M4A, WEBM, OGG, FLAC
+<div class="audio-indicators">
+<div class="indicator-section">
+<h3>Your Voice Level</h3>
+<div class="volume-indicator" id="inputVolumeIndicator">
+<div class="volume-bar" id="inputVolumeBar"></div>
+</div>
+</div>
+
+<div class="indicator-section">
+<h3>Call Status</h3>
+<div class="speech-indicator idle" id="speechStatus">Ready to start call</div>
+</div>
+</div>
+
+<div class="live-transcript">
+<h2>Live Conversation</h2>
+<div class="transcript-container" id="transcriptContainer">
+<div class="transcript-line system">
+<div class="transcript-text">Click "Start Call" to begin your live conversation with AI</div>
+<div class="transcript-meta">
+<span>System</span>
+<span id="currentTime"></span>
+</div>
 </div>
 </div>
 </div>
 
 <div class="audio-controls">
-<h2>AI Audio Response</h2>
-<div class="audio-player-section">
+<h3>AI Audio Response</h3>
+<div class="audio-player">
 <div class="audio-status" id="audioStatus">No audio available</div>
 <audio id="responseAudio" controls style="display: none; width: 100%; max-width: 400px;"></audio>
 <div class="audio-controls-row">
-<button id="downloadBtn" class="btn" disabled>Download WebM</button>
+<button id="playBtn" class="audio-btn play" disabled>Play Last</button>
+<button id="stopAudioBtn" class="audio-btn stop" disabled>Stop Audio</button>
+<button id="downloadBtn" class="audio-btn download" disabled>Download</button>
 </div>
-<div class="download-info">Audio will be converted to WebM format for download</div>
 </div>
 </div>
 
-<div class="latency-stats">
-<h3>Performance Stats</h3>
+<div class="performance-stats">
+<h3>Performance Metrics</h3>
 <div class="stats-grid">
-<div class="stat-item">
-<div class="stat-label">Last Response</div>
-<div class="stat-value" id="lastLatency">--</div>
+<div class="stat-card">
+<div class="stat-label">Response Time</div>
+<div class="stat-value" id="lastResponseTime">--</div>
 </div>
-<div class="stat-item">
-<div class="stat-label">Average</div>
-<div class="stat-value" id="avgLatency">--</div>
+<div class="stat-card">
+<div class="stat-label">Average Time</div>
+<div class="stat-value" id="avgResponseTime">--</div>
 </div>
-<div class="stat-item">
-<div class="stat-label">Best</div>
-<div class="stat-value" id="minLatency">--</div>
+<div class="stat-card">
+<div class="stat-label">Call Duration</div>
+<div class="stat-value" id="callDuration">--</div>
 </div>
-<div class="stat-item">
-<div class="stat-label">Worst</div>
-<div class="stat-value" id="maxLatency">--</div>
+<div class="stat-card">
+<div class="stat-label">Messages</div>
+<div class="stat-value" id="messageCount">0</div>
 </div>
 </div>
 </div>
-<div class="transcript">
-<h2>Conversation</h2>
-<div id="conversation" class="conversation"></div>
-</div>
-<div class="audio-visualization">
-<h2>Audio Input</h2>
-<canvas id="visualizer" width="400" height="100"></canvas>
-</div>
+
 </div>
 
 <script>
-class VoiceChatClient {
+class LiveVoiceCall {
     constructor() {
         this.ws = null;
-        this.mediaRecorder = null;
-        this.audioChunks = [];
+        this.callSid = 'live-call-' + Math.random().toString(36).substring(2, 10);
+        this.isCallActive = false;
         this.isRecording = false;
-        this.callSid = 'web-client-' + Math.random().toString(36).substring(2, 10);
+        this.mediaRecorder = null;
         this.audioContext = null;
         this.analyser = null;
+        this.microphone = null;
         this.animationFrame = null;
-        this.lastAudioData = null;
-        this.isSpeaking = false;
-        this.currentUtterance = null;
-        this.selectedFile = null;
+        
+        // Call state
+        this.callStartTime = null;
+        this.responseTimeHistory = [];
+        this.messageCount = 0;
+        this.lastAudioResponse = null;
         this.currentAudioUrl = null;
         this.isPlayingAudio = false;
-        this.currentAudioBlob = null; // Store the original audio blob for download
         
-        // Performance tracking
-        this.requestStartTime = null;
-        this.latencyHistory = [];
+        // Audio processing
+        this.vadThreshold = 0.01;
+        this.silenceTimeout = null;
+        this.isSpeaking = false;
+        this.speechStartTime = null;
+        this.volumeHistory = [];
+        
+        // Transcript state
+        this.currentInterimTranscript = '';
+        this.finalTranscripts = [];
         
         this.initializeElements();
         this.setupEventListeners();
+        this.updateTime();
+        setInterval(() => this.updateTime(), 1000);
     }
 
     initializeElements() {
-        this.statusElement = document.getElementById('status');
-        this.connectBtn = document.getElementById('connectBtn');
-        this.recordBtn = document.getElementById('recordBtn');
-        this.playBtn = document.getElementById('playBtn');
-        this.stopAudioBtn = document.getElementById('stopAudioBtn');
-        this.uploadBtn = document.getElementById('uploadBtn');
-        this.downloadBtn = document.getElementById('downloadBtn');
-        this.audioFileInput = document.getElementById('audioFileInput');
-        this.fileInfo = document.getElementById('fileInfo');
-        this.conversationElement = document.getElementById('conversation');
-        this.visualizerCanvas = document.getElementById('visualizer');
-        this.visualizerCtx = this.visualizerCanvas.getContext('2d');
+        this.callStatus = document.getElementById('callStatus');
+        this.startCallBtn = document.getElementById('startCallBtn');
+        this.endCallBtn = document.getElementById('endCallBtn');
+        this.inputVolumeBar = document.getElementById('inputVolumeBar');
+        this.speechStatus = document.getElementById('speechStatus');
+        this.transcriptContainer = document.getElementById('transcriptContainer');
         this.responseAudio = document.getElementById('responseAudio');
         this.audioStatus = document.getElementById('audioStatus');
+        this.playBtn = document.getElementById('playBtn');
+        this.stopAudioBtn = document.getElementById('stopAudioBtn');
+        this.downloadBtn = document.getElementById('downloadBtn');
         
-        // Performance stats elements
-        this.lastLatencyElement = document.getElementById('lastLatency');
-        this.avgLatencyElement = document.getElementById('avgLatency');
-        this.minLatencyElement = document.getElementById('minLatency');
-        this.maxLatencyElement = document.getElementById('maxLatency');
+        // Stats elements
+        this.lastResponseTime = document.getElementById('lastResponseTime');
+        this.avgResponseTime = document.getElementById('avgResponseTime');
+        this.callDurationEl = document.getElementById('callDuration');
+        this.messageCountEl = document.getElementById('messageCount');
     }
 
     setupEventListeners() {
-        this.connectBtn.addEventListener('click', () => {
-            if (this.ws?.readyState === WebSocket.OPEN) {
-                this.disconnect();
-            } else {
-                this.connect();
-            }
-        });
-
-        this.recordBtn.addEventListener('click', () => {
-            if (this.isRecording) {
-                this.stopRecording();
-            } else {
-                this.startRecording();
-            }
-        });
-
-        this.playBtn.addEventListener('click', () => {
-            this.playLastResponse();
-        });
-
-        this.stopAudioBtn.addEventListener('click', () => {
-            this.stopAllAudio();
-        });
-
-        this.uploadBtn.addEventListener('click', () => {
-            this.uploadAudioFile();
-        });
-
-        this.downloadBtn.addEventListener('click', () => {
-            this.downloadAudioResponse();
-        });
-
-        this.audioFileInput.addEventListener('change', (event) => {
-            this.handleFileSelection(event);
-        });
+        this.startCallBtn.addEventListener('click', () => this.startCall());
+        this.endCallBtn.addEventListener('click', () => this.endCall());
+        this.playBtn.addEventListener('click', () => this.playLastResponse());
+        this.stopAudioBtn.addEventListener('click', () => this.stopAllAudio());
+        this.downloadBtn.addEventListener('click', () => this.downloadLastResponse());
 
         this.responseAudio.addEventListener('play', () => {
             this.isPlayingAudio = true;
@@ -582,463 +592,354 @@ class VoiceChatClient {
         });
     }
 
-    handleFileSelection(event) {
-        const file = event.target.files[0];
-        if (file) {
-            this.selectedFile = file;
-            const fileSize = (file.size / 1024 / 1024).toFixed(2);
-            const fileName = file.name.length > 30 ? file.name.substring(0, 27) + '...' : file.name;
-            
-            this.fileInfo.textContent = `Selected: ${fileName} (${fileSize} MB)`;
-            this.fileInfo.classList.add('file-selected');
-            
-            // Enable upload button if connected
-            this.uploadBtn.disabled = !(this.ws?.readyState === WebSocket.OPEN);
-            
-            this.addMessage('System', `File selected: ${file.name} (${fileSize} MB)`);
-        } else {
-            this.selectedFile = null;
-            this.fileInfo.textContent = 'No file selected';
-            this.fileInfo.classList.remove('file-selected');
-            this.uploadBtn.disabled = true;
+    updateTime() {
+        const now = new Date();
+        document.getElementById('currentTime').textContent = now.toLocaleTimeString();
+        
+        if (this.callStartTime) {
+            const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
+            const minutes = Math.floor(duration / 60);
+            const seconds = duration % 60;
+            this.callDurationEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
     }
 
-    uploadAudioFile() {
-        if (!this.selectedFile || this.ws?.readyState !== WebSocket.OPEN) {
-            this.addMessage('System', 'Please select a file and ensure connection');
-            return;
-        }
-
-        const maxSize = 25 * 1024 * 1024; // 25MB limit
-        if (this.selectedFile.size > maxSize) {
-            this.addMessage('System', 'File too large. Maximum size is 25MB');
-            return;
-        }
-
-        this.uploadBtn.disabled = true;
-        this.uploadBtn.textContent = 'Uploading...';
-        this.addMessage('You', `Uploading: ${this.selectedFile.name}`);
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            const base64Audio = reader.result.split(',')[1];
-            this.sendAudioData(base64Audio, 'file');
-        };
-        
-        reader.onerror = () => {
-            this.addMessage('System', 'Error reading file');
-            this.uploadBtn.disabled = false;
-            this.uploadBtn.textContent = 'Upload & Send';
-        };
-        
-        reader.readAsDataURL(this.selectedFile);
-    }
-
-    connect() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}?callSid=${this.callSid}`;
-        
-        this.ws = new WebSocket(wsUrl);
-        
-        this.ws.onopen = () => {
-            this.updateStatus('connected');
-            this.connectBtn.textContent = 'Disconnect';
-            this.recordBtn.disabled = false;
-            this.uploadBtn.disabled = !this.selectedFile;
-            this.addMessage('System', 'Connected to server');
-            this.latencyHistory = [];
-            this.updateLatencyStats();
-        };
-        
-        this.ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                if (message.type === 'audio') {
-                    const latency = this.calculateLatency();
-                    this.handleAudioResponse(message.audio, latency);
-                } else if (message.type === 'error') {
-                    this.addMessage('System', `Error: ${message.error}`);
-                }
-            } catch (error) {
-                console.error('Error parsing message:', error);
-                this.addMessage('System', 'Error parsing server response');
-            }
-        };
-        
-        this.ws.onclose = () => {
-            this.updateStatus('disconnected');
-            this.connectBtn.textContent = 'Connect';
-            this.recordBtn.disabled = true;
-            this.uploadBtn.disabled = true;
-            this.addMessage('System', 'Disconnected from server');
-        };
-        
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.addMessage('System', 'Connection error');
-        };
-    }
-
-    disconnect() {
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
-        this.stopAllAudio();
-    }
-
-    updateStatus(status) {
-        this.statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-        this.statusElement.className = `status ${status}`;
-    }
-
-    async startRecording() {
+    async startCall() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: { 
+            this.updateCallStatus('connecting', 'Connecting...');
+            this.startCallBtn.disabled = true;
+            
+            // Connect to WebSocket
+            await this.connectWebSocket();
+            
+            // Request microphone access
+            await this.setupAudio();
+            
+            // Start the call
+            this.isCallActive = true;
+            this.callStartTime = Date.now();
+            this.responseTimeHistory = [];
+            this.messageCount = 0;
+            
+            this.updateCallStatus('listening', 'Listening...');
+            this.endCallBtn.disabled = false;
+            this.speechStatus.textContent = 'Say something to start conversation';
+            this.speechStatus.className = 'speech-indicator listening';
+            
+            this.addSystemMessage('Call started - speak naturally, AI will respond when you pause');
+            
+        } catch (error) {
+            console.error('Failed to start call:', error);
+            this.addSystemMessage(`Failed to start call: ${error.message}`);
+            this.updateCallStatus('disconnected', 'Disconnected');
+            this.startCallBtn.disabled = false;
+        }
+    }
+
+    async connectWebSocket() {
+        return new Promise((resolve, reject) => {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}?callSid=${this.callSid}`;
+            
+            this.ws = new WebSocket(wsUrl);
+            
+            this.ws.onopen = () => {
+                console.log('WebSocket connected');
+                resolve();
+            };
+            
+            this.ws.onmessage = (event) => {
+                this.handleWebSocketMessage(event);
+            };
+            
+            this.ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                if (this.isCallActive) {
+                    this.addSystemMessage('Connection lost');
+                    this.endCall();
+                }
+            };
+            
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                reject(new Error('WebSocket connection failed'));
+            };
+            
+            setTimeout(() => reject(new Error('Connection timeout')), 10000);
+        });
+    }
+
+    async setupAudio() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
-                } 
-            });
-            
-            this.mediaRecorder = new MediaRecorder(stream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
-            this.audioChunks = [];
-            
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.audioChunks.push(event.data);
+                    autoGainControl: true,
+                    sampleRate: 16000
                 }
-            };
+            });
+
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.microphone = this.audioContext.createMediaStreamSource(stream);
+            this.analyser = this.audioContext.createAnalyser();
             
-            this.mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-                this.sendAudio(audioBlob);
-                // Stop all tracks to free up microphone
-                stream.getTracks().forEach(track => track.stop());
-            };
+            this.analyser.fftSize = 256;
+            this.analyser.smoothingTimeConstant = 0.8;
+            this.microphone.connect(this.analyser);
             
-            this.mediaRecorder.start();
-            this.isRecording = true;
-            this.recordBtn.textContent = 'Stop Recording';
-            this.recordBtn.classList.add('recording');
+            // Setup audio streaming
+            this.setupAudioStreaming(stream);
             
-            this.setupAudioVisualization(stream);
-            this.addMessage('You', 'Recording...');
+            // Start volume monitoring
+            this.startVolumeMonitoring();
+            
         } catch (error) {
-            console.error('Error starting recording:', error);
-            this.addMessage('System', 'Microphone access denied or unavailable');
+            throw new Error('Microphone access denied or unavailable');
         }
     }
 
-    stopRecording() {
-        if (this.mediaRecorder && this.isRecording) {
-            this.mediaRecorder.stop();
-            this.isRecording = false;
-            this.recordBtn.textContent = 'Start Recording';
-            this.recordBtn.classList.remove('recording');
+    setupAudioStreaming(stream) {
+        this.mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm;codecs=opus'
+        });
+
+        this.mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64Audio = reader.result.split(',')[1];
+                    this.ws.send(JSON.stringify({
+                        type: 'audio_stream',
+                        audioData: base64Audio,
+                        timestamp: Date.now()
+                    }));
+                };
+                reader.readAsDataURL(event.data);
+            }
+        };
+
+        // Stream audio in small chunks
+        this.mediaRecorder.start(100); // 100ms chunks
+        this.isRecording = true;
+    }
+
+    startVolumeMonitoring() {
+        const bufferLength = this.analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        const monitor = () => {
+            if (!this.isCallActive) return;
             
-            if (this.animationFrame) {
-                cancelAnimationFrame(this.animationFrame);
-                this.animationFrame = null;
+            this.animationFrame = requestAnimationFrame(monitor);
+            this.analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume
+            const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+            const volume = average / 255;
+            
+            this.volumeHistory.push(volume);
+            if (this.volumeHistory.length > 10) {
+                this.volumeHistory.shift();
             }
             
-            // Clean up audio context
-            if (this.audioContext) {
-                this.audioContext.close();
-                this.audioContext = null;
+            // Update volume indicator
+            this.inputVolumeBar.style.height = `${Math.min(volume * 100, 100)}%`;
+            
+            // Voice activity detection
+            this.handleVoiceActivity(volume);
+        };
+        
+        monitor();
+    }
+
+    handleVoiceActivity(volume) {
+        const isCurrentlySpeaking = volume > this.vadThreshold;
+        
+        if (isCurrentlySpeaking && !this.isSpeaking) {
+            // Speech started
+            this.isSpeaking = true;
+            this.speechStartTime = Date.now();
+            this.speechStatus.textContent = 'You are speaking...';
+            this.speechStatus.className = 'speech-indicator speaking';
+            
+            if (this.silenceTimeout) {
+                clearTimeout(this.silenceTimeout);
+                this.silenceTimeout = null;
             }
             
-            this.addMessage('You', 'Processing audio...');
+            // Send speech started signal
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({
+                    type: 'speech_started',
+                    timestamp: Date.now()
+                }));
+            }
+            
+        } else if (!isCurrentlySpeaking && this.isSpeaking) {
+            // Potential speech end - wait for confirmation
+            if (this.silenceTimeout) {
+                clearTimeout(this.silenceTimeout);
+            }
+            
+            this.silenceTimeout = setTimeout(() => {
+                this.isSpeaking = false;
+                this.speechStatus.textContent = 'Processing...';
+                this.speechStatus.className = 'speech-indicator processing';
+                
+                // Send speech ended signal
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'speech_ended',
+                        timestamp: Date.now()
+                    }));
+                }
+            }, 1000); // 1 second of silence before considering speech ended
         }
     }
 
-    sendAudio(audioBlob) {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onload = () => {
-                const base64Audio = reader.result.split(',')[1];
-                this.sendAudioData(base64Audio, 'live');
-                this.addMessage('You', 'Audio sent to AI');
-            };
-            reader.readAsDataURL(audioBlob);
+    handleWebSocketMessage(event) {
+        try {
+            const message = JSON.parse(event.data);
+            
+            switch (message.type) {
+                case 'ready':
+                    console.log('Server ready');
+                    break;
+                    
+                case 'transcript':
+                    this.handleTranscript(message);
+                    break;
+                    
+                case 'ai_response':
+                    this.handleAIResponse(message);
+                    break;
+                    
+                case 'interrupt':
+                    this.handleInterrupt();
+                    break;
+                    
+                case 'error':
+                    this.addSystemMessage(`Error: ${message.error}`);
+                    break;
+                    
+                default:
+                    console.log('Unknown message type:', message.type);
+            }
+        } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+        }
+    }
+
+    handleTranscript(message) {
+        if (message.is_final) {
+            // Clear interim transcript and add final
+            this.clearInterimTranscript();
+            this.addTranscriptLine('user', message.text, message.confidence);
+            this.currentInterimTranscript = '';
         } else {
-            this.addMessage('System', 'Not connected to server');
+            // Update interim transcript
+            this.updateInterimTranscript(message.text, message.confidence);
         }
     }
 
-    sendAudioData(base64Audio, source) {
-        this.requestStartTime = performance.now();
+    handleAIResponse(message) {
+        const responseTime = message.processingTime;
+        this.responseTimeHistory.push(responseTime);
+        this.messageCount++;
         
-        this.ws.send(JSON.stringify({
-            type: 'audio',
-            audio: base64Audio,
-            source: source
-        }));
-
-        if (source === 'file') {
-            this.uploadBtn.textContent = 'Upload & Send';
-            this.uploadBtn.disabled = false;
-            this.addMessage('You', 'File sent to AI');
+        // Update stats
+        this.updateStats();
+        
+        // Add AI response to transcript
+        this.addTranscriptLine('ai', message.text);
+        
+        // Handle audio if available
+        if (message.hasAudio && message.audioData) {
+            this.setupAudioResponse(message);
+            // Auto-play the response
+            setTimeout(() => this.playAudioResponse(), 100);
+        } else {
+            // Fallback to browser TTS
+            this.playTextToSpeech(message.text);
         }
+        
+        // Update status
+        this.speechStatus.textContent = 'AI is responding...';
+        this.speechStatus.className = 'speech-indicator processing';
+        
+        // Reset to listening after estimated response duration
+        const estimatedDuration = Math.max(message.text.length * 80, 2000);
+        setTimeout(() => {
+            if (this.isCallActive && !this.isSpeaking) {
+                this.speechStatus.textContent = 'Listening...';
+                this.speechStatus.className = 'speech-indicator listening';
+            }
+        }, estimatedDuration);
     }
 
-    handleAudioResponse(audioData, latency) {
-        this.lastAudioData = audioData;
-        
-        if (latency !== null) {
-            this.latencyHistory.push(latency);
-            this.updateLatencyStats();
-        }
-        
-        // Extract text from audio response
-        let responseText = 'AI response received';
-        let hasAudio = false;
-        
-        if (audioData && audioData.text) {
-            responseText = audioData.text;
-        }
-
-        // Check if we have audio data from EvenLabs
-        if (audioData && audioData.audioData) {
-            hasAudio = true;
-            this.setupAudioResponse(audioData);
-        }
-        
-        this.addMessage('AI', responseText, latency, hasAudio);
-        
-        // Auto-play audio if available and not manually disabled
-        if (hasAudio && !this.isPlayingAudio) {
-            setTimeout(() => {
-                this.playAudioResponse();
-            }, 100); // Small delay to ensure audio is loaded
-        } else if (!hasAudio) {
-            // Fallback to text-to-speech if no audio from server
-            this.playTextToSpeech(responseText);
-        }
-        
-        this.playBtn.disabled = false;
+    handleInterrupt() {
+        console.log('AI response interrupted by user speech');
+        this.stopAllAudio();
+        this.speechStatus.textContent = 'You interrupted - continuing to listen...';
+        this.speechStatus.className = 'speech-indicator listening';
     }
 
-    setupAudioResponse(audioData) {
-        // Clean up previous audio URL
+    setupAudioResponse(message) {
+        // Clean up previous audio
         if (this.currentAudioUrl) {
             URL.revokeObjectURL(this.currentAudioUrl);
         }
 
-        // Create audio blob from base64 data
-        const audioFormat = audioData.audioFormat || 'mp3';
+        // Create audio blob
+        const audioFormat = message.audioFormat || 'mp3';
         const mimeType = audioFormat === 'mp3' ? 'audio/mpeg' : `audio/${audioFormat}`;
         
-        const audioBytes = atob(audioData.audioData);
+        const audioBytes = atob(message.audioData);
         const audioArray = new Uint8Array(audioBytes.length);
         for (let i = 0; i < audioBytes.length; i++) {
             audioArray[i] = audioBytes.charCodeAt(i);
         }
         
         const audioBlob = new Blob([audioArray], { type: mimeType });
-        this.currentAudioBlob = audioBlob; // Store for download
+        this.lastAudioResponse = audioBlob;
         this.currentAudioUrl = URL.createObjectURL(audioBlob);
         
-        // Set up audio element
+        // Setup audio element
         this.responseAudio.src = this.currentAudioUrl;
         this.responseAudio.style.display = 'block';
         this.audioStatus.textContent = 'AI audio response ready';
-        this.downloadBtn.disabled = false; // Enable download button
-        
-        console.log(`Audio response loaded: ${audioFormat}, ${audioArray.length} bytes`);
-    }
-
-    async downloadAudioResponse() {
-        if (!this.currentAudioBlob) {
-            this.addMessage('System', 'No audio response available for download');
-            return;
-        }
-
-        try {
-            this.downloadBtn.disabled = true;
-            this.downloadBtn.textContent = 'Converting...';
-            
-            // Convert audio to WebM format using Web Audio API
-            const webmBlob = await this.convertToWebM(this.currentAudioBlob);
-            
-            // Create download link
-            const downloadUrl = URL.createObjectURL(webmBlob);
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `ai-response-${timestamp}.webm`;
-            
-            // Create temporary link and trigger download
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            // Clean up
-            setTimeout(() => {
-                URL.revokeObjectURL(downloadUrl);
-            }, 1000);
-            
-            this.addMessage('System', `Audio downloaded as ${filename}`);
-            
-        } catch (error) {
-            console.error('Error downloading audio:', error);
-            this.addMessage('System', 'Error converting audio for download');
-        } finally {
-            this.downloadBtn.disabled = false;
-            this.downloadBtn.textContent = 'Download WebM';
-        }
-    }
-
-    async convertToWebM(audioBlob) {
-        // If the audio is already in WebM format, return as is
-        if (audioBlob.type.includes('webm')) {
-            return audioBlob;
-        }
-
-        // For other formats, we'll use a simple approach
-        // In a real implementation, you might want to use FFmpeg.js or similar
-        // For now, we'll try to re-encode using MediaRecorder if possible
-        
-        try {
-            // Create an audio element to decode the audio
-            const audio = new Audio();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            audio.src = audioUrl;
-            
-            // Wait for audio to load
-            await new Promise((resolve, reject) => {
-                audio.addEventListener('loadeddata', resolve);
-                audio.addEventListener('error', reject);
-            });
-
-            // Create audio context for processing
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioContext.createMediaElementSource(audio);
-            
-            // Create a destination for recording
-            const dest = audioContext.createMediaStreamDestination();
-            source.connect(dest);
-            
-            // Record to WebM
-            const mediaRecorder = new MediaRecorder(dest.stream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
-            
-            const chunks = [];
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    chunks.push(event.data);
-                }
-            };
-            
-            return new Promise((resolve, reject) => {
-                mediaRecorder.onstop = () => {
-                    const webmBlob = new Blob(chunks, { type: 'audio/webm' });
-                    audioContext.close();
-                    URL.revokeObjectURL(audioUrl);
-                    resolve(webmBlob);
-                };
-                
-                mediaRecorder.onerror = reject;
-                
-                mediaRecorder.start();
-                audio.play();
-                
-                // Stop recording when audio ends
-                audio.addEventListener('ended', () => {
-                    mediaRecorder.stop();
-                });
-            });
-            
-        } catch (error) {
-            // If conversion fails, try to return the original blob with WebM mime type
-            // This is a fallback that may not always work perfectly
-            console.warn('Audio conversion failed, using original blob:', error);
-            return new Blob([audioBlob], { type: 'audio/webm' });
-        }
+        this.playBtn.disabled = false;
+        this.downloadBtn.disabled = false;
     }
 
     playAudioResponse() {
         if (this.currentAudioUrl && this.responseAudio.src) {
             this.responseAudio.play().catch(error => {
                 console.error('Error playing audio:', error);
-                this.addMessage('System', 'Error playing audio response');
                 this.audioStatus.textContent = 'Error playing audio';
             });
         }
     }
 
     playTextToSpeech(text) {
-        if (!('speechSynthesis' in window)) {
-            return;
-        }
-
-        if (this.currentUtterance) {
-            speechSynthesis.cancel();
-        }
+        if (!('speechSynthesis' in window)) return;
         
-        this.isSpeaking = true;
+        speechSynthesis.cancel(); // Stop any current speech
+        
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.1;
+        utterance.rate = 1.0;
         utterance.pitch = 1.0;
-        utterance.volume = 0.9;
+        utterance.volume = 0.8;
         
-        utterance.onend = () => {
-            this.isSpeaking = false;
-            this.currentUtterance = null;
-        };
-        
-        utterance.onerror = () => {
-            this.isSpeaking = false;
-            this.currentUtterance = null;
-        };
-        
-        this.currentUtterance = utterance;
         speechSynthesis.speak(utterance);
-    }
-
-    calculateLatency() {
-        if (this.requestStartTime) {
-            const latency = Math.round(performance.now() - this.requestStartTime);
-            this.requestStartTime = null;
-            return latency;
-        }
-        return null;
-    }
-
-    updateLatencyStats() {
-        if (this.latencyHistory.length === 0) {
-            ['lastLatency', 'avgLatency', 'minLatency', 'maxLatency'].forEach(id => {
-                document.getElementById(id).textContent = '--';
-            });
-            return;
-        }
-
-        const last = this.latencyHistory[this.latencyHistory.length - 1];
-        const avg = Math.round(this.latencyHistory.reduce((a, b) => a + b, 0) / this.latencyHistory.length);
-        const min = Math.min(...this.latencyHistory);
-        const max = Math.max(...this.latencyHistory);
-
-        this.lastLatencyElement.textContent = `${last}ms`;
-        this.avgLatencyElement.textContent = `${avg}ms`;
-        this.minLatencyElement.textContent = `${min}ms`;
-        this.maxLatencyElement.textContent = `${max}ms`;
     }
 
     playLastResponse() {
         if (this.currentAudioUrl) {
             this.playAudioResponse();
-            this.addMessage('System', 'Replaying last audio response...');
-        } else if (this.lastAudioData && this.lastAudioData.text) {
-            this.playTextToSpeech(this.lastAudioData.text);
-            this.addMessage('System', 'Playing last response with TTS...');
         } else {
-            this.addMessage('System', 'No response to replay');
+            this.addSystemMessage('No audio response available to replay');
         }
     }
 
@@ -1050,10 +951,8 @@ class VoiceChatClient {
         }
 
         // Stop speech synthesis
-        if (this.isSpeaking && 'speechSynthesis' in window) {
+        if ('speechSynthesis' in window) {
             speechSynthesis.cancel();
-            this.isSpeaking = false;
-            this.currentUtterance = null;
         }
 
         this.audioStatus.textContent = 'Audio stopped';
@@ -1061,90 +960,176 @@ class VoiceChatClient {
         this.stopAudioBtn.disabled = true;
     }
 
-    addMessage(sender, text, latency = null, hasAudio = false) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${this.getMessageClass(sender)}`;
-        
-        const messageText = document.createElement('div');
-        messageText.textContent = text;
-        
-        const timestamp = document.createElement('div');
-        timestamp.className = 'timestamp';
-        timestamp.textContent = new Date().toLocaleTimeString();
-        
-        messageDiv.appendChild(messageText);
-        messageDiv.appendChild(timestamp);
-        
-        if (latency !== null) {
-            const latencyDiv = document.createElement('div');
-            latencyDiv.className = 'latency';
-            latencyDiv.textContent = `${latency}ms`;
-            messageDiv.appendChild(latencyDiv);
+    downloadLastResponse() {
+        if (!this.lastAudioResponse) {
+            this.addSystemMessage('No audio response available for download');
+            return;
         }
 
-        if (hasAudio) {
-            const audioDiv = document.createElement('div');
-            audioDiv.className = 'audio-indicator';
-            audioDiv.textContent = '🔊 Audio response';
-            messageDiv.appendChild(audioDiv);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `ai-response-${timestamp}.mp3`;
+        
+        const downloadUrl = URL.createObjectURL(this.lastAudioResponse);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+        this.addSystemMessage(`Audio downloaded as ${filename}`);
+    }
+
+    addTranscriptLine(type, text, confidence = null) {
+        const line = document.createElement('div');
+        line.className = `transcript-line ${type}`;
+        
+        const textDiv = document.createElement('div');
+        textDiv.className = 'transcript-text';
+        textDiv.textContent = text;
+        
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'transcript-meta';
+        
+        const typeSpan = document.createElement('span');
+        typeSpan.textContent = type === 'user' ? 'You' : 'AI';
+        
+        const timeSpan = document.createElement('span');
+        timeSpan.textContent = new Date().toLocaleTimeString();
+        
+        metaDiv.appendChild(typeSpan);
+        
+        if (confidence !== null && type === 'user') {
+            const confidenceBadge = document.createElement('span');
+            confidenceBadge.className = `confidence-badge ${confidence < 0.7 ? (confidence < 0.5 ? 'very-low' : 'low') : ''}`;
+            confidenceBadge.textContent = `${Math.round(confidence * 100)}%`;
+            metaDiv.appendChild(confidenceBadge);
         }
         
-        this.conversationElement.appendChild(messageDiv);
-        this.conversationElement.scrollTop = this.conversationElement.scrollHeight;
+        metaDiv.appendChild(timeSpan);
         
-        // Limit conversation history to prevent memory issues
-        if (this.conversationElement.children.length > 50) {
-            this.conversationElement.removeChild(this.conversationElement.firstChild);
+        line.appendChild(textDiv);
+        line.appendChild(metaDiv);
+        
+        this.transcriptContainer.appendChild(line);
+        this.scrollTranscriptToBottom();
+        
+        // Limit transcript history
+        if (this.transcriptContainer.children.length > 50) {
+            this.transcriptContainer.removeChild(this.transcriptContainer.firstChild);
         }
     }
 
-    getMessageClass(sender) {
-        switch (sender) {
-            case 'You': return 'user-message';
-            case 'System': return 'system-message';
-            default: return 'ai-message';
+    updateInterimTranscript(text, confidence) {
+        // Remove existing interim transcript
+        this.clearInterimTranscript();
+        
+        // Add new interim transcript
+        const line = document.createElement('div');
+        line.className = 'transcript-line interim';
+        line.id = 'interim-transcript';
+        
+        const textDiv = document.createElement('div');
+        textDiv.className = 'transcript-text';
+        textDiv.textContent = text;
+        
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'transcript-meta';
+        metaDiv.innerHTML = `<span>You (speaking...)</span><span>${Math.round(confidence * 100)}%</span>`;
+        
+        line.appendChild(textDiv);
+        line.appendChild(metaDiv);
+        
+        this.transcriptContainer.appendChild(line);
+        this.scrollTranscriptToBottom();
+    }
+
+    clearInterimTranscript() {
+        const interim = document.getElementById('interim-transcript');
+        if (interim) {
+            interim.remove();
         }
     }
 
-    setupAudioVisualization(stream) {
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        this.analyser = this.audioContext.createAnalyser();
-        const source = this.audioContext.createMediaStreamSource(stream);
-        source.connect(this.analyser);
+    addSystemMessage(message) {
+        this.addTranscriptLine('system', message);
+    }
+
+    scrollTranscriptToBottom() {
+        this.transcriptContainer.scrollTop = this.transcriptContainer.scrollHeight;
+    }
+
+    updateStats() {
+        if (this.responseTimeHistory.length > 0) {
+            const last = this.responseTimeHistory[this.responseTimeHistory.length - 1];
+            const avg = Math.round(this.responseTimeHistory.reduce((a, b) => a + b, 0) / this.responseTimeHistory.length);
+            
+            this.lastResponseTime.textContent = `${last}ms`;
+            this.avgResponseTime.textContent = `${avg}ms`;
+        }
         
-        this.analyser.fftSize = 128;
-        const bufferLength = this.analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
+        this.messageCountEl.textContent = this.messageCount.toString();
+    }
+
+    updateCallStatus(status, text) {
+        this.callStatus.className = `call-status ${status}`;
+        this.callStatus.textContent = text;
+    }
+
+    endCall() {
+        this.isCallActive = false;
+        this.isRecording = false;
         
-        const draw = () => {
-            if (!this.isRecording) return;
-            
-            this.animationFrame = requestAnimationFrame(draw);
-            this.analyser.getByteFrequencyData(dataArray);
-            
-            this.visualizerCtx.fillStyle = '#f0f0f0';
-            this.visualizerCtx.fillRect(0, 0, this.visualizerCanvas.width, this.visualizerCanvas.height);
-            
-            const barWidth = (this.visualizerCanvas.width / bufferLength) * 2;
-            let x = 0;
-            
-            for (let i = 0; i < bufferLength; i++) {
-                const barHeight = (dataArray[i] / 255) * this.visualizerCanvas.height * 0.8;
-                
-                this.visualizerCtx.fillStyle = `hsl(${(barHeight / this.visualizerCanvas.height) * 120}, 70%, 50%)`;
-                this.visualizerCtx.fillRect(x, this.visualizerCanvas.height - barHeight, barWidth, barHeight);
-                
-                x += barWidth + 1;
-            }
-        };
+        // Stop all audio processing
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            this.mediaRecorder.stop();
+        }
         
-        draw();
+        if (this.animationFrame) {
+            cancelAnimationFrame(this.animationFrame);
+        }
+        
+        if (this.audioContext) {
+            this.audioContext.close();
+        }
+        
+        if (this.silenceTimeout) {
+            clearTimeout(this.silenceTimeout);
+        }
+        
+        // Close WebSocket
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        
+        // Stop any playing audio
+        this.stopAllAudio();
+        
+        // Reset UI
+        this.updateCallStatus('disconnected', 'Call Ended');
+        this.startCallBtn.disabled = false;
+        this.endCallBtn.disabled = true;
+        this.speechStatus.textContent = 'Call ended';
+        this.speechStatus.className = 'speech-indicator idle';
+        this.inputVolumeBar.style.height = '0%';
+        
+        // Add summary
+        if (this.callStartTime) {
+            const duration = Math.floor((Date.now() - this.callStartTime) / 1000);
+            const minutes = Math.floor(duration / 60);
+            const seconds = duration % 60;
+            this.addSystemMessage(`Call ended - Duration: ${minutes}:${seconds.toString().padStart(2, '0')}, Messages: ${this.messageCount}`);
+        }
+        
+        this.callStartTime = null;
     }
 }
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new VoiceChatClient();
+    new LiveVoiceCall();
 });
 </script>
 </body>
