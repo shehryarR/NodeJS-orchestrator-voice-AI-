@@ -167,6 +167,19 @@ class GeminiClient {
         'X-goog-api-key': this.apiKey
       }
     };
+    
+    // System prompt for live phone call optimization
+    this.systemPrompt = `You are an AI agent on a live phone call. Keep your responses:
+- SHORT and CONCISE (1-2 sentences maximum)
+- CONVERSATIONAL and natural for speech
+- CLEAR and easy to understand when spoken aloud
+- AVOID complex explanations, lists, or technical jargon
+- RESPOND as if speaking directly to the caller
+- BE HELPFUL but brief - this is real-time conversation
+- NO markdown, special formatting, or written-style text
+- SOUND natural when converted to speech
+
+Remember: This is a live phone conversation, not a text chat. Keep it brief and conversational.`;
   }
 
   async generateContent(prompt, callSid) {
@@ -179,7 +192,20 @@ class GeminiClient {
 
     return new Promise((resolve) => {
       const postData = JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [
+          { 
+            parts: [{ text: this.systemPrompt }],
+            role: "user" 
+          },
+          { 
+            parts: [{ text: "I understand. I'll keep my responses short, conversational, and optimized for live phone calls." }],
+            role: "model" 
+          },
+          { 
+            parts: [{ text: prompt }],
+            role: "user" 
+          }
+        ]
       });
 
       const req = https.request({
@@ -196,17 +222,26 @@ class GeminiClient {
           try {
             if (res.statusCode !== 200) {
               console.log(`[${callSid}] LLM: Error ${res.statusCode} (${duration}ms)`);
-              resolve(`Processing error (${res.statusCode}). Please try again.`);
+              resolve(`I'm having trouble right now. Please try again.`);
               return;
             }
             const response = JSON.parse(data);
             const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
-            const responseText = text || "I couldn't generate a response.";
-            console.log(`[${callSid}] LLM: Success "${responseText.slice(0, 50)}..." (${duration}ms)`);
-            resolve(responseText);
+            const responseText = text || "I didn't catch that. Could you repeat?";
+            
+            // Clean up the response for speech (remove any remaining formatting)
+            const cleanedResponse = responseText
+              .replace(/\*\*/g, '') // Remove bold markdown
+              .replace(/\*/g, '')   // Remove italic markdown
+              .replace(/`/g, '')    // Remove code ticks
+              .replace(/#{1,6}\s/g, '') // Remove headers
+              .trim();
+            
+            console.log(`[${callSid}] LLM: Success "${cleanedResponse.slice(0, 50)}..." (${duration}ms)`);
+            resolve(cleanedResponse);
           } catch (error) {
             console.log(`[${callSid}] LLM: Parse error (${duration}ms)`);
-            resolve("I encountered an error processing your request.");
+            resolve("Sorry, I had trouble understanding. Can you try again?");
           }
         });
       });
@@ -214,7 +249,7 @@ class GeminiClient {
       req.on('error', () => {
         const duration = Date.now() - startTime;
         console.log(`[${callSid}] LLM: Connection error (${duration}ms)`);
-        resolve("Connection error. Please try again.");
+        resolve("I'm having connection issues. Please try again.");
       });
       req.write(postData);
       req.end();
