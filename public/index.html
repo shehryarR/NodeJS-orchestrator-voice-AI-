@@ -125,6 +125,11 @@ h1 {
     color: white;
 }
 
+#downloadBtn {
+    background: #607D8B;
+    color: white;
+}
+
 .file-upload-section {
     padding: 15px 20px;
     background: #f9f9f9;
@@ -216,6 +221,14 @@ h1 {
     gap: 15px;
 }
 
+.audio-controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
 .audio-status {
     font-size: 0.9rem;
     color: #666;
@@ -229,6 +242,14 @@ h1 {
     background: #c8e6c9;
     border-color: #4CAF50;
     color: #2e7d32;
+}
+
+.download-info {
+    font-size: 0.8rem;
+    color: #666;
+    text-align: center;
+    margin-top: 5px;
+    font-style: italic;
 }
 
 .transcript {
@@ -375,6 +396,11 @@ h1 {
         min-width: auto;
         width: 100%;
     }
+    
+    .audio-controls-row {
+        flex-direction: column;
+        align-items: center;
+    }
 }
 </style>
 </head>
@@ -409,6 +435,10 @@ Supported: MP3, WAV, M4A, WEBM, OGG, FLAC
 <div class="audio-player-section">
 <div class="audio-status" id="audioStatus">No audio available</div>
 <audio id="responseAudio" controls style="display: none; width: 100%; max-width: 400px;"></audio>
+<div class="audio-controls-row">
+<button id="downloadBtn" class="btn" disabled>Download WebM</button>
+</div>
+<div class="download-info">Audio will be converted to WebM format for download</div>
 </div>
 </div>
 
@@ -460,6 +490,7 @@ class VoiceChatClient {
         this.selectedFile = null;
         this.currentAudioUrl = null;
         this.isPlayingAudio = false;
+        this.currentAudioBlob = null; // Store the original audio blob for download
         
         // Performance tracking
         this.requestStartTime = null;
@@ -476,6 +507,7 @@ class VoiceChatClient {
         this.playBtn = document.getElementById('playBtn');
         this.stopAudioBtn = document.getElementById('stopAudioBtn');
         this.uploadBtn = document.getElementById('uploadBtn');
+        this.downloadBtn = document.getElementById('downloadBtn');
         this.audioFileInput = document.getElementById('audioFileInput');
         this.fileInfo = document.getElementById('fileInfo');
         this.conversationElement = document.getElementById('conversation');
@@ -518,6 +550,10 @@ class VoiceChatClient {
 
         this.uploadBtn.addEventListener('click', () => {
             this.uploadAudioFile();
+        });
+
+        this.downloadBtn.addEventListener('click', () => {
+            this.downloadAudioResponse();
         });
 
         this.audioFileInput.addEventListener('change', (event) => {
@@ -804,14 +840,127 @@ class VoiceChatClient {
         }
         
         const audioBlob = new Blob([audioArray], { type: mimeType });
+        this.currentAudioBlob = audioBlob; // Store for download
         this.currentAudioUrl = URL.createObjectURL(audioBlob);
         
         // Set up audio element
         this.responseAudio.src = this.currentAudioUrl;
         this.responseAudio.style.display = 'block';
         this.audioStatus.textContent = 'AI audio response ready';
+        this.downloadBtn.disabled = false; // Enable download button
         
         console.log(`Audio response loaded: ${audioFormat}, ${audioArray.length} bytes`);
+    }
+
+    async downloadAudioResponse() {
+        if (!this.currentAudioBlob) {
+            this.addMessage('System', 'No audio response available for download');
+            return;
+        }
+
+        try {
+            this.downloadBtn.disabled = true;
+            this.downloadBtn.textContent = 'Converting...';
+            
+            // Convert audio to WebM format using Web Audio API
+            const webmBlob = await this.convertToWebM(this.currentAudioBlob);
+            
+            // Create download link
+            const downloadUrl = URL.createObjectURL(webmBlob);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `ai-response-${timestamp}.webm`;
+            
+            // Create temporary link and trigger download
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up
+            setTimeout(() => {
+                URL.revokeObjectURL(downloadUrl);
+            }, 1000);
+            
+            this.addMessage('System', `Audio downloaded as ${filename}`);
+            
+        } catch (error) {
+            console.error('Error downloading audio:', error);
+            this.addMessage('System', 'Error converting audio for download');
+        } finally {
+            this.downloadBtn.disabled = false;
+            this.downloadBtn.textContent = 'Download WebM';
+        }
+    }
+
+    async convertToWebM(audioBlob) {
+        // If the audio is already in WebM format, return as is
+        if (audioBlob.type.includes('webm')) {
+            return audioBlob;
+        }
+
+        // For other formats, we'll use a simple approach
+        // In a real implementation, you might want to use FFmpeg.js or similar
+        // For now, we'll try to re-encode using MediaRecorder if possible
+        
+        try {
+            // Create an audio element to decode the audio
+            const audio = new Audio();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            audio.src = audioUrl;
+            
+            // Wait for audio to load
+            await new Promise((resolve, reject) => {
+                audio.addEventListener('loadeddata', resolve);
+                audio.addEventListener('error', reject);
+            });
+
+            // Create audio context for processing
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaElementSource(audio);
+            
+            // Create a destination for recording
+            const dest = audioContext.createMediaStreamDestination();
+            source.connect(dest);
+            
+            // Record to WebM
+            const mediaRecorder = new MediaRecorder(dest.stream, {
+                mimeType: 'audio/webm;codecs=opus'
+            });
+            
+            const chunks = [];
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    chunks.push(event.data);
+                }
+            };
+            
+            return new Promise((resolve, reject) => {
+                mediaRecorder.onstop = () => {
+                    const webmBlob = new Blob(chunks, { type: 'audio/webm' });
+                    audioContext.close();
+                    URL.revokeObjectURL(audioUrl);
+                    resolve(webmBlob);
+                };
+                
+                mediaRecorder.onerror = reject;
+                
+                mediaRecorder.start();
+                audio.play();
+                
+                // Stop recording when audio ends
+                audio.addEventListener('ended', () => {
+                    mediaRecorder.stop();
+                });
+            });
+            
+        } catch (error) {
+            // If conversion fails, try to return the original blob with WebM mime type
+            // This is a fallback that may not always work perfectly
+            console.warn('Audio conversion failed, using original blob:', error);
+            return new Blob([audioBlob], { type: 'audio/webm' });
+        }
     }
 
     playAudioResponse() {
