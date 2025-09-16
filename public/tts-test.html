@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>TTS Test</title>
+<style>
+body { font-family: sans-serif; padding: 20px; }
+#textInput { width: 100%; height: 80px; margin: 10px 0; }
+button { padding: 8px 15px; margin: 5px; }
+#status { margin: 10px 0; font-weight: bold; }
+</style>
+</head>
+<body>
+<h2>🗣️ TTS Test</h2>
+
+<textarea id="textInput" placeholder="Enter text to synthesize...">Hello! This is a test.</textarea>
+<br>
+<button id="synthesize">Synthesize</button>
+<button id="stop" disabled>Stop</button>
+
+<div id="status">Status: Not Connected</div>
+
+<audio id="audioPlayer" controls style="display: none; width: 100%; margin-top: 10px;"></audio>
+
+<script>
+const synthesizeBtn = document.getElementById('synthesize');
+const stopBtn = document.getElementById('stop');
+const statusDiv = document.getElementById('status');
+const textInput = document.getElementById('textInput');
+const audioPlayer = document.getElementById('audioPlayer');
+
+let ws;
+
+function updateStatus(message) {
+  statusDiv.textContent = message;
+}
+
+function connectWebSocket() {
+  return new Promise((resolve) => {
+    ws = new WebSocket(`ws://${window.location.host}`);
+    
+    ws.onopen = () => {
+      updateStatus('Status: Connected');
+      resolve();
+    };
+    
+    ws.onmessage = async (event) => {
+      if (typeof event.data === 'string') {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'tts_status') {
+          if (msg.status === 'synthesizing') {
+            updateStatus('Status: Synthesizing...');
+          } else if (msg.status === 'completed') {
+            const timings = msg.timings;
+            updateStatus(`Status: Complete (${timings.totalTime}ms, ${timings.realTimeFactor}x realtime)`);
+            console.log('📊 TTS Performance:', timings);
+            synthesizeBtn.disabled = false;
+            stopBtn.disabled = true;
+          }
+        } else if (msg.type === 'tts_error') {
+          updateStatus(`Error: ${msg.error}`);
+          if (msg.timings) {
+            console.log('❌ Error after:', msg.timings);
+          }
+          synthesizeBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
+      } else if (event.data instanceof Blob) {
+        const arrayBuffer = await event.data.arrayBuffer();
+        playAudio(arrayBuffer);
+      }
+    };
+    
+    ws.onclose = () => {
+      updateStatus('Status: Disconnected');
+      synthesizeBtn.disabled = false;
+      stopBtn.disabled = true;
+    };
+  });
+}
+
+function playAudio(arrayBuffer) {
+  // Convert PCM to WAV
+  const wavBuffer = createWavFile(arrayBuffer);
+  const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  
+  audioPlayer.src = url;
+  audioPlayer.style.display = 'block';
+  audioPlayer.play();
+}
+
+function createWavFile(pcmBuffer) {
+  const int16Array = new Int16Array(pcmBuffer);
+  const length = int16Array.length;
+  const buffer = new ArrayBuffer(44 + length * 2);
+  const view = new DataView(buffer);
+  
+  // WAV header
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, 48000, true); // sample rate
+  view.setUint32(28, 48000 * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, length * 2, true);
+  
+  // PCM data
+  for (let i = 0; i < length; i++) {
+    view.setInt16(44 + i * 2, int16Array[i], true);
+  }
+  
+  return buffer;
+}
+
+synthesizeBtn.onclick = async () => {
+  const text = textInput.value.trim();
+  if (!text) return;
+  
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    await connectWebSocket();
+  }
+  
+  synthesizeBtn.disabled = true;
+  stopBtn.disabled = false;
+  
+  ws.send(JSON.stringify({
+    type: 'synthesize',
+    text: text,
+    options: { model: 'aura-asteria-en' }
+  }));
+};
+
+stopBtn.onclick = () => {
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+  synthesizeBtn.disabled = false;
+  stopBtn.disabled = true;
+  updateStatus('Status: Stopped');
+};
+
+// Auto-connect
+window.onload = () => connectWebSocket();
+</script>
+</body>
+</html>
