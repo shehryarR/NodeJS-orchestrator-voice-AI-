@@ -127,6 +127,16 @@
             font-style: italic;
         }
         
+        .system-message {
+            background: rgba(156, 39, 176, 0.3);
+            border-left: 4px solid #9C27B0;
+        }
+        
+        .error-message {
+            background: rgba(244, 67, 54, 0.3);
+            border-left: 4px solid #F44336;
+        }
+        
         .instructions {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 10px;
@@ -226,7 +236,8 @@
             constructor() {
                 this.ws = null;
                 this.isRecording = false;
-                this.mediaRecorder = null;
+                this.audioContext = null;
+                this.processor = null;
                 this.audioStream = null;
                 this.callSid = null;
                 this.stats = {
@@ -331,11 +342,11 @@
             
             async setupAudio() {
                 try {
-                    // Request microphone access with specific constraints for WebM/Opus
+                    // Request microphone access - using raw PCM capture like working example
                     this.audioStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
                             channelCount: 1,
-                            sampleRate: 48000,
+                            sampleRate: 48000, // Match server expectation
                             echoCancellation: true,
                             noiseSuppression: true,
                             autoGainControl: true
@@ -357,37 +368,34 @@
                 if (this.isRecording || !this.audioStream || this.pushToTalkBtn.disabled) return;
                 
                 try {
-                    // Use WebM with Opus codec for direct Deepgram compatibility
-                    const options = {
-                        mimeType: 'audio/webm;codecs=opus'
-                    };
+                    // Setup audio context and processor like working example
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
                     
-                    // Fallback for browsers that don't support WebM/Opus
-                    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                        console.warn('WebM/Opus not supported, falling back to default');
-                        options.mimeType = 'audio/webm';
-                    }
+                    // Connect audio stream to processor
+                    const source = this.audioContext.createMediaStreamSource(this.audioStream);
+                    source.connect(this.processor);
+                    this.processor.connect(this.audioContext.destination);
                     
-                    this.mediaRecorder = new MediaRecorder(this.audioStream, options);
                     this.isRecording = true;
-                    
                     this.pushToTalkBtn.classList.add('recording');
                     this.pushToTalkBtn.innerHTML = '<div>🔴</div><div style="font-size: 0.8em;">Recording...</div>';
                     
                     // Send start recording message
                     this.sendMessage({ type: 'start_recording' });
                     
-                    this.mediaRecorder.ondataavailable = (event) => {
-                        if (event.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                            // Send raw audio data as binary
-                            this.ws.send(event.data);
+                    // Send raw PCM Float32Array as binary (like working example)
+                    this.processor.onaudioprocess = (e) => {
+                        if (this.isRecording && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            const pcm = e.inputBuffer.getChannelData(0);
+                            // Send raw Float32Array buffer directly to server
+                            this.ws.send(pcm.buffer);
                             this.stats.audioChunks++;
                             this.updateStats();
                         }
                     };
                     
-                    this.mediaRecorder.start(100); // Capture in 100ms chunks
-                    console.log('Recording started');
+                    console.log('Recording started with PCM audio');
                     
                 } catch (error) {
                     console.error('Failed to start recording:', error);
@@ -398,10 +406,20 @@
             }
             
             stopRecording() {
-                if (!this.isRecording || !this.mediaRecorder) return;
+                if (!this.isRecording) return;
                 
                 try {
-                    this.mediaRecorder.stop();
+                    // Clean up audio processing
+                    if (this.processor) {
+                        this.processor.disconnect();
+                        this.processor = null;
+                    }
+                    
+                    if (this.audioContext) {
+                        this.audioContext.close();
+                        this.audioContext = null;
+                    }
+                    
                     this.isRecording = false;
                     this.resetButton();
                     
@@ -434,6 +452,13 @@
                         break;
                         
                     case 'recording_stopped':
+                        break;
+                        
+                    case 'transcript_received':
+                        // Show live transcript updates
+                        if (data.text.trim()) {
+                            this.updateLastTranscript(data.text, data.is_final);
+                        }
                         break;
                         
                     case 'processing_started':
@@ -469,6 +494,26 @@
                     default:
                         console.log('Unknown message type:', data.type);
                 }
+            }
+            
+            updateLastTranscript(text, isFinal) {
+                const messages = this.conversationEl.querySelectorAll('.transcript');
+                let lastTranscript = messages[messages.length - 1];
+                
+                if (!lastTranscript || lastTranscript.dataset.final === 'true') {
+                    // Create new transcript message
+                    lastTranscript = document.createElement('div');
+                    lastTranscript.className = 'message transcript';
+                    lastTranscript.innerHTML = '<strong>📝 Transcript:</strong> ' + text;
+                    lastTranscript.dataset.final = isFinal.toString();
+                    this.conversationEl.appendChild(lastTranscript);
+                } else {
+                    // Update existing interim transcript
+                    lastTranscript.innerHTML = '<strong>📝 Transcript:</strong> ' + text;
+                    lastTranscript.dataset.final = isFinal.toString();
+                }
+                
+                this.conversationEl.scrollTop = this.conversationEl.scrollHeight;
             }
             
             playAudio(base64Audio, format) {

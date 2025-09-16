@@ -27,7 +27,7 @@ const config = {
     llm: process.env.MOCK_LLM === 'true'
   },
   audio: {
-    sampleRate: 16000,
+    sampleRate: 48000, // Match browser AudioContext
     channels: 1,
     bitsPerSample: 16,
     enableFormatConversion: true,
@@ -41,8 +41,6 @@ const config = {
     connectionTimeout: 10000
   }
 };
-
-// REMOVED: AudioFormatConverter class entirely - no longer needed
 
 class GroqStreamingClient {
   constructor() {
@@ -234,7 +232,7 @@ class DeepgramTTSClient {
         throw new Error('Empty or invalid text for TTS');
       }
 
-      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000& container=none', {
+      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000&container=none', {
         method: 'POST',
         headers: {
           'Authorization': `Token ${this.apiKey}`,
@@ -306,7 +304,7 @@ class DeepgramStreamingASR {
           ];
           
           const mockText = mockTexts[Math.floor(Math.random() * mockTexts.length)];
-          const isFinal = Math.random() > 0.4; // Higher chance of final transcripts
+          const isFinal = Math.random() > 0.4;
           
           console.log(`[${callSid}] Mock transcript: "${mockText}" (final: ${isFinal})`);
           
@@ -342,11 +340,11 @@ class DeepgramStreamingASR {
 
     this.connectionStates[callSid] = 'CONNECTING';
 
-    // Connection options for WebM/Opus from browser
+    // Updated connection options to match working example - linear16 PCM
     const connectionOptions = {
       model: "nova-2",
-      encoding: "opus", // Accept WebM container format directly
-      sample_rate: 48000, // Match browser MediaRecorder
+      encoding: "linear16", // Raw PCM (Float32 → Int16)
+      sample_rate: 48000,   // Match browser AudioContext sample rate
       channels: 1,
       interim_results: true,
       punctuate: true,
@@ -430,8 +428,7 @@ class DeepgramStreamingASR {
 
       const connectionState = this.connectionStates[callSid];
       
-      // Log first few bytes for debugging (but not too verbose)
-      if (Math.random() < 0.1) { // Log only 10% of chunks to avoid spam
+      if (Math.random() < 0.1) {
         console.log(`[${callSid}] Sending audio: ${audioBuffer.length} bytes (state: ${connectionState}), first 16 bytes: ${Array.from(audioBuffer.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
       }
       
@@ -739,31 +736,46 @@ class PushToTalkSession {
     }
   }
 
-  // SIMPLIFIED: No more audio conversion - send raw WebM data directly to Deepgram
+  // FIXED: Convert Float32Array buffer to Int16Array for Deepgram
   addAudioData(audioBuffer) {
     if (!audioBuffer || audioBuffer.length === 0) return;
 
-    console.log(`[${this.callSid}] Received raw audio data: ${audioBuffer.length} bytes`);
+    console.log(`[${this.callSid}] Received raw PCM audio data: ${audioBuffer.length} bytes`);
     this.sessionStats.audioChunksReceived++;
 
-    // Send WebM audio directly to Deepgram - NO CONVERSION
-    if (this.deepgramReady && this.deepgramConnection && !this.deepgramFailed) {
-      const success = this.deepgram.sendAudio(this.callSid, audioBuffer, this.deepgramConnection);
-      if (success) {
-        this.sessionStats.audioChunksSent++;
+    // Convert Float32Array buffer to Int16Array (linear16) for Deepgram
+    try {
+      const float32Array = new Float32Array(audioBuffer.buffer);
+      const int16Array = new Int16Array(float32Array.length);
+      
+      for (let i = 0; i < float32Array.length; i++) {
+        // Clamp and scale from [-1.0, 1.0] → [-32768, 32767]
+        let sample = float32Array[i];
+        sample = Math.max(-1, Math.min(1, sample)); // clamp
+        int16Array[i] = sample * 0x7FFF; // scale to 16-bit
+      }
+      
+      // Send converted Int16Array buffer to Deepgram
+      if (this.deepgramReady && this.deepgramConnection && !this.deepgramFailed) {
+        const success = this.deepgram.sendAudio(this.callSid, int16Array.buffer, this.deepgramConnection);
+        if (success) {
+          this.sessionStats.audioChunksSent++;
+        } else {
+          console.warn(`[${this.callSid}] Failed to send audio chunk to Deepgram`);
+        }
+      } else if (this.deepgramConnection && !this.deepgramFailed) {
+        console.warn(`[${this.callSid}] Deepgram connection exists but not ready, queuing audio`);
+        const success = this.deepgram.sendAudio(this.callSid, int16Array.buffer, this.deepgramConnection);
+        if (success) {
+          this.sessionStats.audioChunksSent++;
+        }
+      } else if (this.deepgramFailed) {
+        console.warn(`[${this.callSid}] Deepgram failed, dropping audio chunk`);
       } else {
-        console.warn(`[${this.callSid}] Failed to send audio chunk to Deepgram`);
+        console.warn(`[${this.callSid}] No Deepgram connection available, dropping audio chunk`);
       }
-    } else if (this.deepgramConnection && !this.deepgramFailed) {
-      console.warn(`[${this.callSid}] Deepgram connection exists but not ready, queuing audio`);
-      const success = this.deepgram.sendAudio(this.callSid, audioBuffer, this.deepgramConnection);
-      if (success) {
-        this.sessionStats.audioChunksSent++;
-      }
-    } else if (this.deepgramFailed) {
-      console.warn(`[${this.callSid}] Deepgram failed, dropping audio chunk`);
-    } else {
-      console.warn(`[${this.callSid}] No Deepgram connection available, dropping audio chunk`);
+    } catch (error) {
+      console.error(`[${this.callSid}] Error converting audio data:`, error);
     }
   }
 
@@ -904,7 +916,7 @@ class LiveCallGateway {
       ws.on('message', async (message) => {
         try {
           if (message instanceof Buffer) {
-            // Raw WebM audio data - send directly to session
+            // Raw Float32Array audio data from browser - send to session for conversion
             this.serverStats.totalAudioChunks++;
             session.addAudioData(message);
           } else {
