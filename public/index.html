@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Voice Chat with AI</title>
+    <title>Push-to-Talk AI Voice Chat</title>
     <style>
         * {
             margin: 0;
@@ -80,9 +80,19 @@
             animation: pulse 1.5s infinite;
         }
 
+        .status-indicator.processing {
+            background: #3742fa;
+            animation: processing 2s linear infinite;
+        }
+
         @keyframes pulse {
             0%, 100% { transform: scale(1); opacity: 1; }
             50% { transform: scale(1.2); opacity: 0.7; }
+        }
+
+        @keyframes processing {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         .main-content {
@@ -112,14 +122,14 @@
             height: fit-content;
         }
 
-        .voice-button {
-            width: 120px;
-            height: 120px;
+        .push-to-talk-button {
+            width: 140px;
+            height: 140px;
             border-radius: 50%;
             border: none;
             background: linear-gradient(45deg, #ff6b6b, #ee5a24);
             color: white;
-            font-size: 1.2rem;
+            font-size: 1.3rem;
             cursor: pointer;
             transition: all 0.3s ease;
             margin: 20px auto;
@@ -127,21 +137,38 @@
             box-shadow: 0 8px 25px rgba(0,0,0,0.3);
             position: relative;
             overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
         }
 
-        .voice-button:hover {
+        .push-to-talk-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 12px 35px rgba(0,0,0,0.4);
         }
 
-        .voice-button.recording {
+        .push-to-talk-button:active,
+        .push-to-talk-button.recording {
             background: linear-gradient(45deg, #2ed573, #1dd1a1);
             animation: recording-pulse 1s infinite;
+            transform: scale(0.95);
         }
 
-        .voice-button.processing {
+        .push-to-talk-button.processing {
             background: linear-gradient(45deg, #ffa502, #ff6348);
             animation: processing-spin 2s linear infinite;
+            cursor: wait;
+        }
+
+        .push-to-talk-button.playing {
+            background: linear-gradient(45deg, #3742fa, #2f3542);
+            animation: audio-playing 1.5s ease-in-out infinite alternate;
+        }
+
+        .push-to-talk-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            animation: none;
         }
 
         @keyframes recording-pulse {
@@ -150,8 +177,31 @@
         }
 
         @keyframes processing-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+            from { transform: rotate(0deg) scale(0.95); }
+            to { transform: rotate(360deg) scale(0.95); }
+        }
+
+        @keyframes audio-playing {
+            from { box-shadow: 0 0 15px rgba(55, 66, 250, 0.4); }
+            to { box-shadow: 0 0 30px rgba(55, 66, 250, 0.8); }
+        }
+
+        .instructions {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            line-height: 1.4;
+        }
+
+        .instructions.recording {
+            color: #2ed573;
+            font-weight: bold;
+        }
+
+        .instructions.processing {
+            color: #ffa502;
+            font-weight: bold;
         }
 
         .conversation {
@@ -179,7 +229,7 @@
             margin-bottom: 15px;
             padding: 15px;
             border-radius: 15px;
-            max-width: 80%;
+            max-width: 85%;
             animation: slideIn 0.3s ease;
         }
 
@@ -205,6 +255,17 @@
             font-style: italic;
             font-size: 0.9rem;
             opacity: 0.8;
+            margin-right: auto;
+            max-width: 70%;
+        }
+
+        .message.acknowledgment {
+            background: rgba(255, 165, 0, 0.2);
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-right: auto;
+            max-width: 60%;
+            border-left: 3px solid #ffa502;
         }
 
         .timestamp {
@@ -261,17 +322,6 @@
             color: #2ed573;
         }
 
-        .debug-info {
-            background: rgba(0,0,0,0.2);
-            border-radius: 10px;
-            padding: 15px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.8rem;
-            margin-top: 20px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-
         .clear-button {
             background: rgba(255,255,255,0.2);
             border: 1px solid rgba(255,255,255,0.3);
@@ -281,6 +331,7 @@
             cursor: pointer;
             font-size: 0.9rem;
             transition: all 0.3s ease;
+            margin-top: 15px;
         }
 
         .clear-button:hover {
@@ -296,6 +347,14 @@
             color: #ff4757;
         }
 
+        .keyboard-shortcuts {
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 0.8rem;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -309,10 +368,10 @@
                 font-size: 2rem;
             }
             
-            .voice-button {
-                width: 100px;
-                height: 100px;
-                font-size: 1rem;
+            .push-to-talk-button {
+                width: 120px;
+                height: 120px;
+                font-size: 1.1rem;
             }
         }
     </style>
@@ -320,8 +379,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎙️ Live Voice Chat with AI</h1>
-            <p>Real-time conversation with Voice Activity Detection</p>
+            <h1>🎤 Push-to-Talk AI Voice Chat</h1>
+            <p>Hold to record, release to send • Real-time transcription & response</p>
         </div>
 
         <div class="status-bar">
@@ -335,8 +394,8 @@
                     <span>Microphone</span>
                 </div>
                 <div class="status-item">
-                    <div class="status-indicator" id="vadStatus"></div>
-                    <span>Voice Detection</span>
+                    <div class="status-indicator" id="recordingStatus"></div>
+                    <span>Recording</span>
                 </div>
                 <div class="status-item">
                     <div class="status-indicator" id="aiStatus"></div>
@@ -349,14 +408,18 @@
             <div class="chat-area">
                 <div class="conversation" id="conversation"></div>
                 
-                <div class="audio-visualizer">
+                <div class="audio-visualizer" id="visualizerContainer">
                     <div class="visualizer-bars" id="visualizer">
                         <!-- Bars will be generated by JavaScript -->
                     </div>
                 </div>
 
-                <button class="voice-button" id="voiceButton">
-                    🎤 Start
+                <div class="instructions" id="instructions">
+                    Press and hold the button to start recording your message
+                </div>
+
+                <button class="push-to-talk-button" id="pushToTalkButton">
+                    🎙️ Hold to Talk
                 </button>
             </div>
 
@@ -368,40 +431,40 @@
                         <span class="setting-value" id="callId">-</span>
                     </div>
                     <div class="setting-item">
-                        <span>Protocol:</span>
-                        <span class="setting-value" id="protocol">-</span>
+                        <span>Mode:</span>
+                        <span class="setting-value" id="mode">Push-to-Talk</span>
                     </div>
                 </div>
 
                 <div class="settings-group">
-                    <h3>Voice Activity</h3>
+                    <h3>Session Stats</h3>
                     <div class="setting-item">
-                        <span>Chunks Processed:</span>
-                        <span class="setting-value" id="chunksProcessed">0</span>
+                        <span>Audio Chunks:</span>
+                        <span class="setting-value" id="audioChunks">0</span>
                     </div>
                     <div class="setting-item">
-                        <span>Voice Chunks:</span>
-                        <span class="setting-value" id="voiceChunks">0</span>
+                        <span>Transcripts:</span>
+                        <span class="setting-value" id="transcriptCount">0</span>
                     </div>
                     <div class="setting-item">
-                        <span>Silent Chunks:</span>
-                        <span class="setting-value" id="silentChunks">0</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Consecutive Silent:</span>
-                        <span class="setting-value" id="consecutiveSilent">0</span>
+                        <span>Responses:</span>
+                        <span class="setting-value" id="responseCount">0</span>
                     </div>
                 </div>
 
                 <div class="settings-group">
-                    <h3>Audio Stats</h3>
+                    <h3>Current State</h3>
                     <div class="setting-item">
-                        <span>Sample Rate:</span>
-                        <span class="setting-value" id="sampleRate">-</span>
+                        <span>Recording:</span>
+                        <span class="setting-value" id="isRecording">No</span>
                     </div>
                     <div class="setting-item">
-                        <span>Chunk Duration:</span>
-                        <span class="setting-value" id="chunkDuration">-</span>
+                        <span>Processing:</span>
+                        <span class="setting-value" id="isProcessing">No</span>
+                    </div>
+                    <div class="setting-item">
+                        <span>Playing Audio:</span>
+                        <span class="setting-value" id="isPlayingAudio">No</span>
                     </div>
                 </div>
 
@@ -409,59 +472,73 @@
                     Clear Conversation
                 </button>
 
-                <div class="debug-info" id="debugInfo"></div>
+                <div class="keyboard-shortcuts">
+                    <strong>Keyboard Shortcuts:</strong><br>
+                    • Space: Hold to record<br>
+                    • Escape: Stop recording<br>
+                    • Enter: Clear conversation
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        class VoiceChatClient {
+        class PushToTalkVoiceClient {
             constructor() {
                 this.ws = null;
                 this.mediaRecorder = null;
                 this.audioStream = null;
-                this.isRecording = false;
-                this.isConnected = false;
-                this.callSid = null;
                 this.audioContext = null;
                 this.analyser = null;
                 this.dataArray = null;
                 
-                // Audio processing
-                this.audioChunks = [];
-                this.vadConfig = {};
+                // States
+                this.isConnected = false;
+                this.isRecording = false;
+                this.isProcessing = false;
+                this.isPlayingAudio = false;
+                this.callSid = null;
                 
                 // UI elements
-                this.voiceButton = document.getElementById('voiceButton');
+                this.pushToTalkButton = document.getElementById('pushToTalkButton');
                 this.conversation = document.getElementById('conversation');
                 this.visualizer = document.getElementById('visualizer');
+                this.instructions = document.getElementById('instructions');
                 
                 // Status indicators
                 this.wsStatus = document.getElementById('wsStatus');
                 this.micStatus = document.getElementById('micStatus');
-                this.vadStatus = document.getElementById('vadStatus');
+                this.recordingStatus = document.getElementById('recordingStatus');
                 this.aiStatus = document.getElementById('aiStatus');
                 
                 // Stats elements
                 this.callIdElement = document.getElementById('callId');
-                this.protocolElement = document.getElementById('protocol');
-                this.chunksProcessedElement = document.getElementById('chunksProcessed');
-                this.voiceChunksElement = document.getElementById('voiceChunks');
-                this.silentChunksElement = document.getElementById('silentChunks');
-                this.consecutiveSilentElement = document.getElementById('consecutiveSilent');
-                this.sampleRateElement = document.getElementById('sampleRate');
-                this.chunkDurationElement = document.getElementById('chunkDuration');
-                this.debugInfo = document.getElementById('debugInfo');
+                this.audioChunksElement = document.getElementById('audioChunks');
+                this.transcriptCountElement = document.getElementById('transcriptCount');
+                this.responseCountElement = document.getElementById('responseCount');
+                this.isRecordingElement = document.getElementById('isRecording');
+                this.isProcessingElement = document.getElementById('isProcessing');
+                this.isPlayingAudioElement = document.getElementById('isPlayingAudio');
+                
+                // Session stats
+                this.sessionStats = {
+                    audioChunks: 0,
+                    transcriptCount: 0,
+                    responseCount: 0
+                };
+                
+                // Audio processing
+                this.recordingTimer = null;
+                this.currentAudio = null;
                 
                 this.init();
             }
 
             async init() {
                 this.setupVisualizerBars();
-                this.voiceButton.addEventListener('click', () => this.toggleRecording());
-                
-                // Connect to server
+                this.setupEventListeners();
                 await this.connectToServer();
+                await this.setupMicrophone();
             }
 
             setupVisualizerBars() {
@@ -474,18 +551,74 @@
                 }
             }
 
+            setupEventListeners() {
+                // Mouse events
+                this.pushToTalkButton.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this.startRecording();
+                });
+
+                this.pushToTalkButton.addEventListener('mouseup', (e) => {
+                    e.preventDefault();
+                    this.stopRecording();
+                });
+
+                this.pushToTalkButton.addEventListener('mouseleave', (e) => {
+                    if (this.isRecording) {
+                        this.stopRecording();
+                    }
+                });
+
+                // Touch events for mobile
+                this.pushToTalkButton.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.startRecording();
+                });
+
+                this.pushToTalkButton.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.stopRecording();
+                });
+
+                // Keyboard events
+                document.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space' && !this.isRecording && !e.repeat) {
+                        e.preventDefault();
+                        this.startRecording();
+                    } else if (e.code === 'Escape' && this.isRecording) {
+                        e.preventDefault();
+                        this.stopRecording();
+                    } else if (e.code === 'Enter' && e.ctrlKey) {
+                        e.preventDefault();
+                        this.clearConversation();
+                    }
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    if (e.code === 'Space' && this.isRecording) {
+                        e.preventDefault();
+                        this.stopRecording();
+                    }
+                });
+
+                // Prevent context menu on button
+                this.pushToTalkButton.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                });
+            }
+
             async connectToServer() {
                 try {
                     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                     const wsUrl = `${protocol}//${window.location.host}?callSid=${this.generateCallSid()}`;
                     
-                    this.log(`Connecting to: ${wsUrl}`);
+                    console.log(`Connecting to: ${wsUrl}`);
                     this.ws = new WebSocket(wsUrl);
                     
                     this.ws.onopen = () => {
                         this.isConnected = true;
                         this.updateStatus('ws', 'connected');
-                        this.log('WebSocket connected');
+                        console.log('WebSocket connected');
                     };
                     
                     this.ws.onmessage = (event) => {
@@ -496,46 +629,103 @@
                     this.ws.onclose = () => {
                         this.isConnected = false;
                         this.updateStatus('ws', 'disconnected');
-                        this.log('WebSocket disconnected');
+                        console.log('WebSocket disconnected');
                         
                         // Attempt to reconnect after 3 seconds
                         setTimeout(() => this.connectToServer(), 3000);
                     };
                     
                     this.ws.onerror = (error) => {
-                        this.log(`WebSocket error: ${error}`);
+                        console.log(`WebSocket error:`, error);
                         this.updateStatus('ws', 'error');
                     };
                     
                 } catch (error) {
-                    this.log(`Connection error: ${error}`);
+                    console.log(`Connection error:`, error);
                     this.showError(`Failed to connect to server: ${error.message}`);
                 }
             }
 
+            async setupMicrophone() {
+                try {
+                    this.audioStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                            // Removed sampleRate constraint - let browser choose
+                        }
+                    });
+                    
+                    this.setupAudioProcessing();
+                    this.updateStatus('mic', 'connected');
+                    console.log('Microphone access granted');
+                    
+                } catch (error) {
+                    console.log(`Failed to access microphone:`, error);
+                    this.showError(`Microphone access denied: ${error.message}`);
+                    this.updateStatus('mic', 'error');
+                }
+            }
+
+            setupAudioProcessing() {
+                // Create AudioContext with default sample rate (don't force 16kHz)
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                const source = this.audioContext.createMediaStreamSource(this.audioStream);
+                this.analyser = this.audioContext.createAnalyser();
+                this.analyser.fftSize = 256;
+                
+                source.connect(this.analyser);
+                this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                
+                console.log(`AudioContext sample rate: ${this.audioContext.sampleRate}Hz`);
+                
+                // Start visualizer
+                this.updateVisualizer();
+            }
+
             handleServerMessage(message) {
-                this.log(`Received: ${message.type}`);
+                console.log(`Received: ${message.type}`);
                 
                 switch (message.type) {
                     case 'ready':
                         this.callSid = message.callSid;
-                        this.vadConfig = message.vadConfig;
                         this.callIdElement.textContent = this.callSid.substring(0, 8) + '...';
-                        this.protocolElement.textContent = message.secure ? 'HTTPS/WSS' : 'HTTP/WS';
-                        this.chunkDurationElement.textContent = `${message.chunkDuration}ms`;
-                        this.log(`Ready - Call ID: ${this.callSid}`);
+                        console.log(`Ready - Call ID: ${this.callSid}`);
+                        break;
+                        
+                    case 'recording_started':
+                        console.log('Server confirmed recording started');
+                        break;
+                        
+                    case 'recording_stopped':
+                        console.log('Server confirmed recording stopped');
+                        if (message.finalTranscript) {
+                            this.addMessage('user', message.finalTranscript, new Date());
+                        }
+                        break;
+                        
+                    case 'audio_chunk_processed':
+                        this.sessionStats.audioChunks++;
+                        this.audioChunksElement.textContent = this.sessionStats.audioChunks;
                         break;
                         
                     case 'transcript':
                         this.handleTranscript(message);
                         break;
                         
-                    case 'ai_response':
-                        this.handleAIResponse(message);
+                    case 'llm_acknowledgment':
+                        this.addMessage('acknowledgment', `AI: ${message.text}`, new Date());
                         break;
                         
-                    case 'chunk_processing':
-                        this.updateChunkStats(message);
+                    case 'processing_started':
+                        this.setProcessingState(true);
+                        break;
+                        
+                    case 'ai_response':
+                        this.handleAIResponse(message);
                         break;
                         
                     case 'interrupt':
@@ -545,20 +735,28 @@
                     case 'error':
                         this.showError(message.error);
                         break;
+                        
+                    case 'pong':
+                        // Heartbeat response
+                        break;
                 }
             }
 
             handleTranscript(message) {
-                this.updateStatus('vad', message.is_final ? 'connected' : 'active');
+                this.sessionStats.transcriptCount++;
+                this.transcriptCountElement.textContent = this.sessionStats.transcriptCount;
                 
-                // Only show final transcripts in conversation
+                // Show real-time transcripts
                 if (message.is_final) {
-                    this.addMessage('transcript', `User said: "${message.text}"`, new Date());
+                    this.addMessage('transcript', `"${message.text}"`, new Date());
                 }
             }
 
             handleAIResponse(message) {
-                this.updateStatus('ai', 'connected');
+                this.sessionStats.responseCount++;
+                this.responseCountElement.textContent = this.sessionStats.responseCount;
+                
+                this.setProcessingState(false);
                 this.addMessage('ai', message.text, new Date());
                 
                 // Play AI audio if available
@@ -568,105 +766,94 @@
             }
 
             handleInterrupt() {
-                this.log('User interrupt detected');
-                this.updateStatus('ai', 'connected');
-            }
-
-            updateChunkStats(message) {
-                this.chunksProcessedElement.textContent = message.chunkCount;
-                this.voiceChunksElement.textContent = message.voiceChunkCount;
-                this.silentChunksElement.textContent = message.silentChunkCount;
-                this.consecutiveSilentElement.textContent = message.consecutiveSilent;
+                console.log('Interrupt received from server');
+                this.setProcessingState(false);
+                this.setPlayingAudioState(false);
                 
-                // Update VAD status based on voice activity
-                if (message.hasVoice) {
-                    this.updateStatus('vad', 'active');
-                } else if (message.consecutiveSilent > 0) {
-                    this.updateStatus('vad', 'connected');
-                }
-            }
-
-            async toggleRecording() {
-                if (!this.isRecording) {
-                    await this.startRecording();
-                } else {
-                    this.stopRecording();
+                // Stop any currently playing audio
+                if (this.currentAudio) {
+                    this.currentAudio.pause();
+                    this.currentAudio = null;
                 }
             }
 
             async startRecording() {
+                if (this.isRecording || !this.isConnected || !this.audioStream) {
+                    return;
+                }
+
+                // Stop any ongoing activities
+                this.handleInterrupt();
+
+                this.isRecording = true;
+                this.setRecordingState(true);
+                
+                console.log('🔴 Starting recording...');
+
                 try {
-                    this.audioStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            sampleRate: 16000,
-                            channelCount: 1,
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
+                    // Setup MediaRecorder
+                    let mimeType = 'audio/wav';
+                    if (!MediaRecorder.isTypeSupported(mimeType)) {
+                        mimeType = 'audio/webm;codecs=opus';
+                    }
+                    
+                    this.mediaRecorder = new MediaRecorder(this.audioStream, {
+                        mimeType: mimeType
                     });
                     
-                    this.setupAudioProcessing();
-                    this.setupMediaRecorder();
+                    this.mediaRecorder.ondataavailable = async (event) => {
+                        if (event.data.size > 0 && this.isConnected && this.isRecording) {
+                            await this.sendAudioChunk(event.data);
+                        }
+                    };
                     
+                    this.mediaRecorder.onerror = (error) => {
+                        console.error('MediaRecorder error:', error);
+                        this.stopRecording();
+                    };
+
+                    // Start recording and notify server
                     this.mediaRecorder.start(100); // Collect data every 100ms
-                    this.isRecording = true;
                     
-                    this.voiceButton.textContent = '🛑 Stop';
-                    this.voiceButton.classList.add('recording');
-                    this.updateStatus('mic', 'connected');
-                    
-                    this.log('Recording started');
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({
+                            type: 'start_recording',
+                            timestamp: Date.now()
+                        }));
+                    }
                     
                 } catch (error) {
-                    this.log(`Failed to start recording: ${error}`);
-                    this.showError(`Microphone access denied: ${error.message}`);
-                    this.updateStatus('mic', 'error');
+                    console.error('Failed to start recording:', error);
+                    this.showError(`Failed to start recording: ${error.message}`);
+                    this.setRecordingState(false);
                 }
             }
 
-            setupAudioProcessing() {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 16000
-                });
-                
-                const source = this.audioContext.createMediaStreamSource(this.audioStream);
-                this.analyser = this.audioContext.createAnalyser();
-                this.analyser.fftSize = 256;
-                
-                source.connect(this.analyser);
-                
-                this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-                this.sampleRateElement.textContent = `${this.audioContext.sampleRate}Hz`;
-                
-                // Start visualizer
-                this.updateVisualizer();
-            }
-
-            setupMediaRecorder() {
-                // Try PCM first, fallback to WebM
-                let mimeType = 'audio/wav';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/webm;codecs=opus';
-                    this.log('Using WebM/Opus format (may need server-side conversion)');
-                } else {
-                    this.log('Using WAV/PCM format');
+            stopRecording() {
+                if (!this.isRecording) {
+                    return;
                 }
+
+                this.isRecording = false;
+                this.setRecordingState(false);
                 
-                this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                    mimeType: mimeType
-                });
-                
-                this.mediaRecorder.ondataavailable = async (event) => {
-                    if (event.data.size > 0 && this.isConnected) {
-                        await this.sendAudioChunk(event.data);
-                    }
-                };
-                
-                this.mediaRecorder.onerror = (error) => {
-                    this.log(`MediaRecorder error: ${error}`);
-                    this.updateStatus('mic', 'error');
-                };
+                console.log('⏹️ Stopping recording...');
+
+                // Stop MediaRecorder
+                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                    this.mediaRecorder.stop();
+                }
+
+                // Notify server
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'stop_recording',
+                        timestamp: Date.now()
+                    }));
+                }
+
+                // Set processing state
+                this.setProcessingState(true);
             }
 
             async sendAudioChunk(audioBlob) {
@@ -674,9 +861,6 @@
                     const arrayBuffer = await audioBlob.arrayBuffer();
                     const uint8Array = new Uint8Array(arrayBuffer);
                     const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
-                    
-                    // DEBUG: Log audio chunk size
-                    this.log(`Sending audio chunk: ${audioBlob.size} bytes, base64: ${base64.length} chars`);
                     
                     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                         this.ws.send(JSON.stringify({
@@ -686,40 +870,119 @@
                         }));
                     }
                 } catch (error) {
-                    this.log(`Error sending audio chunk: ${error}`);
+                    console.error('Error sending audio chunk:', error);
                 }
             }
 
-            stopRecording() {
-                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-                    this.mediaRecorder.stop();
+            async playAudio(base64Data, format = 'mp3') {
+                try {
+                    this.setPlayingAudioState(true);
+                    
+                    const binaryString = atob(base64Data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    const audioBlob = new Blob([bytes], { type: `audio/${format}` });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    this.currentAudio = new Audio(audioUrl);
+                    
+                    this.currentAudio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                        this.setPlayingAudioState(false);
+                        this.currentAudio = null;
+                    };
+                    
+                    this.currentAudio.onerror = (error) => {
+                        console.error('Audio playback error:', error);
+                        URL.revokeObjectURL(audioUrl);
+                        this.setPlayingAudioState(false);
+                        this.currentAudio = null;
+                    };
+                    
+                    await this.currentAudio.play();
+                    
+                } catch (error) {
+                    console.error('Error playing audio:', error);
+                    this.setPlayingAudioState(false);
                 }
+            }
+
+            setRecordingState(recording) {
+                this.isRecording = recording;
+                this.isRecordingElement.textContent = recording ? 'Yes' : 'No';
                 
-                if (this.audioStream) {
-                    this.audioStream.getTracks().forEach(track => track.stop());
+                if (recording) {
+                    this.pushToTalkButton.classList.add('recording');
+                    this.pushToTalkButton.textContent = '🔴 Recording...';
+                    this.instructions.textContent = 'Recording your message... Release to send';
+                    this.instructions.className = 'instructions recording';
+                    this.updateStatus('recording', 'active');
+                } else {
+                    this.pushToTalkButton.classList.remove('recording');
+                    this.pushToTalkButton.textContent = '🎙️ Hold to Talk';
+                    this.instructions.textContent = 'Press and hold the button to start recording your message';
+                    this.instructions.className = 'instructions';
+                    this.updateStatus('recording', 'disconnected');
                 }
+            }
+
+            setProcessingState(processing) {
+                this.isProcessing = processing;
+                this.isProcessingElement.textContent = processing ? 'Yes' : 'No';
                 
-                if (this.audioContext) {
-                    this.audioContext.close();
+                if (processing) {
+                    this.pushToTalkButton.classList.add('processing');
+                    this.pushToTalkButton.disabled = true;
+                    this.instructions.textContent = 'Processing your message... Please wait';
+                    this.instructions.className = 'instructions processing';
+                    this.updateStatus('ai', 'processing');
+                } else {
+                    this.pushToTalkButton.classList.remove('processing');
+                    this.pushToTalkButton.disabled = false;
+                    this.instructions.textContent = 'Press and hold the button to start recording your message';
+                    this.instructions.className = 'instructions';
+                    this.updateStatus('ai', 'connected');
                 }
+            }
+
+            setPlayingAudioState(playing) {
+                this.isPlayingAudio = playing;
+                this.isPlayingAudioElement.textContent = playing ? 'Yes' : 'No';
                 
-                this.isRecording = false;
-                this.voiceButton.textContent = '🎤 Start';
-                this.voiceButton.classList.remove('recording', 'processing');
-                this.updateStatus('mic', 'disconnected');
-                this.updateStatus('vad', 'disconnected');
-                
-                // Reset visualizer
-                const bars = this.visualizer.children;
-                for (let bar of bars) {
-                    bar.style.height = '4px';
+                if (playing) {
+                    this.pushToTalkButton.classList.add('playing');
+                    this.pushToTalkButton.disabled = true;
+                    this.instructions.textContent = 'AI is speaking... Press button to interrupt';
+                    this.instructions.className = 'instructions';
+                    this.updateStatus('ai', 'active');
+                } else {
+                    this.pushToTalkButton.classList.remove('playing');
+                    if (!this.isProcessing) {
+                        this.pushToTalkButton.disabled = false;
+                        this.instructions.textContent = 'Press and hold the button to start recording your message';
+                        this.instructions.className = 'instructions';
+                    }
+                    this.updateStatus('ai', 'connected');
                 }
-                
-                this.log('Recording stopped');
             }
 
             updateVisualizer() {
-                if (!this.isRecording || !this.analyser) return;
+                if (!this.analyser || !this.isRecording) {
+                    // Reset visualizer when not recording
+                    if (!this.isRecording) {
+                        const bars = this.visualizer.children;
+                        for (let bar of bars) {
+                            bar.style.height = '4px';
+                        }
+                    }
+                    if (this.isRecording) {
+                        requestAnimationFrame(() => this.updateVisualizer());
+                    }
+                    return;
+                }
                 
                 this.analyser.getByteFrequencyData(this.dataArray);
                 
@@ -738,31 +1001,6 @@
                 }
                 
                 requestAnimationFrame(() => this.updateVisualizer());
-            }
-
-            async playAudio(base64Data, format) {
-                try {
-                    const binaryString = atob(base64Data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    
-                    const audioBlob = new Blob([bytes], { type: `audio/${format}` });
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioUrl);
-                    
-                    audio.onended = () => {
-                        URL.revokeObjectURL(audioUrl);
-                        this.updateStatus('ai', 'connected');
-                    };
-                    
-                    this.updateStatus('ai', 'active');
-                    await audio.play();
-                    
-                } catch (error) {
-                    this.log(`Error playing audio: ${error}`);
-                }
             }
 
             addMessage(type, text, timestamp) {
@@ -784,6 +1022,8 @@
 
             updateStatus(service, status) {
                 const statusElement = document.getElementById(`${service}Status`);
+                if (!statusElement) return;
+                
                 statusElement.className = 'status-indicator';
                 
                 switch (status) {
@@ -792,6 +1032,9 @@
                         break;
                     case 'active':
                         statusElement.classList.add('active');
+                        break;
+                    case 'processing':
+                        statusElement.classList.add('processing');
                         break;
                     case 'error':
                         statusElement.style.background = '#ff4757';
@@ -817,20 +1060,20 @@
                 }, 5000);
             }
 
-            log(message) {
-                const timestamp = new Date().toLocaleTimeString();
-                const logEntry = `[${timestamp}] ${message}`;
-                console.log(logEntry);
-                
-                const debugElement = this.debugInfo;
-                debugElement.textContent += logEntry + '\n';
-                debugElement.scrollTop = debugElement.scrollHeight;
-                
-                // Keep only last 20 lines
-                const lines = debugElement.textContent.split('\n');
-                if (lines.length > 20) {
-                    debugElement.textContent = lines.slice(-20).join('\n');
-                }
+            clearConversation() {
+                this.conversation.innerHTML = '';
+                this.sessionStats = {
+                    audioChunks: 0,
+                    transcriptCount: 0,
+                    responseCount: 0
+                };
+                this.updateStatsDisplay();
+            }
+
+            updateStatsDisplay() {
+                this.audioChunksElement.textContent = this.sessionStats.audioChunks;
+                this.transcriptCountElement.textContent = this.sessionStats.transcriptCount;
+                this.responseCountElement.textContent = this.sessionStats.responseCount;
             }
 
             generateCallSid() {
@@ -840,13 +1083,23 @@
 
         // Global functions
         function clearConversation() {
-            document.getElementById('conversation').innerHTML = '';
+            if (window.voiceClient) {
+                window.voiceClient.clearConversation();
+            }
         }
 
         // Initialize the client when page loads
-        let voiceClient;
         document.addEventListener('DOMContentLoaded', () => {
-            voiceClient = new VoiceChatClient();
+            window.voiceClient = new PushToTalkVoiceClient();
+        });
+
+        // Prevent accidental page refresh
+        window.addEventListener('beforeunload', (e) => {
+            if (window.voiceClient && window.voiceClient.isRecording) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
         });
     </script>
 </body>
