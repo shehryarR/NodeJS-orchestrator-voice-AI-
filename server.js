@@ -7,1069 +7,1015 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('@deepgram/sdk');
+const Groq = require('groq-sdk');
 require('dotenv').config();
 
 const config = {
-    port: parseInt(process.env.PORT) || 8080,
-    httpPort: parseInt(process.env.HTTP_PORT) || 8079,
-    useHttps: process.env.USE_HTTPS === 'true' || false,
-    sslKeyPath: process.env.SSL_KEY_PATH || './ssl/private-key.pem',
-    sslCertPath: process.env.SSL_CERT_PATH || './ssl/certificate.pem',
-    deepgram: {
-        apiKey: process.env.DEEPGRAM_API_KEY,
-        streamingModels: ['nova-2', 'base', 'enhanced'],
-        prerecordedModels: ['general', 'nova-2', 'base'],
-        currentModel: 'nova-2',
-        language: 'en-US'
-    },
-    gemini: {
-        apiKey: process.env.GEMINI_API_KEY,
-        baseUrl: 'generativelanguage.googleapis.com',
-        endpoint: '/v1beta/models/gemini-2.0-flash:generateContent'
-    },
-    elevenlabs: {
-        apiKey: process.env.ELEVENLABS_API_KEY,
-        baseUrl: 'api.elevenlabs.io',
-        voiceId: 'pNInz6obpgDQGcFmaJgB',
-        model: 'eleven_monolingual_v1'
-    },
-    mock: {
-        deepgram: process.env.MOCK_DEEPGRAM === 'true',
-        llm: process.env.MOCK_LLM === 'true'
-    },
-    audio: {
-        sampleRate: 16000,
-        channels: 1,
-        bitsPerSample: 16,
-        enableFormatConversion: true,
-        maxAudioChunkSize: 8192,
-        audioBufferTimeout: 500
-    },
-    connection: {
-        maxRetries: 3,
-        retryDelay: 1000,
-        healthCheckInterval: 30000,
-        connectionTimeout: 10000
-    }
+  port: parseInt(process.env.PORT) || 8080,
+  httpPort: parseInt(process.env.HTTP_PORT) || 8079,
+  useHttps: process.env.USE_HTTPS === 'true' || false,
+  deepgram: {
+    apiKey: process.env.DEEPGRAM_API_KEY,
+    ttsVoice: process.env.TTS_VOICE || 'aura-asteria-en'
+  },
+  groq: {
+    apiKey: process.env.GROQ_API_KEY,
+    model: process.env.GROQ_MODEL || 'llama3-8b-8192'
+  },
+  mock: {
+    deepgram: process.env.MOCK_DEEPGRAM === 'true',
+    llm: process.env.MOCK_LLM === 'true'
+  },
+  audio: {
+    sampleRate: 16000,
+    channels: 1,
+    bitsPerSample: 16,
+    enableFormatConversion: true, // Kept for potential fallback, but primary path is direct Opus
+    maxAudioChunkSize: 8192,
+    audioBufferTimeout: 500
+  },
+  connection: {
+    maxRetries: 3,
+    retryDelay: 1000,
+    healthCheckInterval: 30000,
+    connectionTimeout: 10000
+  }
 };
 
-// Enhanced Audio format converter
 class AudioFormatConverter {
-    static webmToPcm(webmBuffer) {
-        try {
-            if (webmBuffer.length === 0) return Buffer.alloc(0);
-            
-            // Check if this is actually raw PCM data (from WAV)
-            if (webmBuffer.length > 44 && webmBuffer.toString('ascii', 0, 4) === 'RIFF') {
-                console.log('Processing WAV format audio');
-                return webmBuffer.slice(44); // Skip WAV header
-            }
-            
-            // For WebM/Opus or other formats, pass through as-is
-            console.log(`Processing audio buffer: ${webmBuffer.length} bytes`);
-            return webmBuffer;
-            
-        } catch (error) {
-            console.warn('Audio conversion failed, using original buffer:', error);
-            return webmBuffer;
+  static webmToPcm(webmBuffer) {
+    try {
+      if (webmBuffer.length === 0) return Buffer.alloc(0);
+      if (webmBuffer.length > 44 && webmBuffer.toString('ascii', 0, 4) === 'RIFF') {
+        console.log('Processing WAV format audio');
+        const dataStart = webmBuffer.indexOf('data');
+        if (dataStart !== -1) {
+          return webmBuffer.subarray(dataStart + 4);
         }
-    }
+        return Buffer.alloc(0);
+      }
 
-    static normalizeAudioLevel(buffer, targetRMS = 0.05) {
-        if (buffer.length === 0) return buffer;
-        
-        try {
-            // Only normalize if we have PCM data (even number of bytes)
-            if (buffer.length % 2 !== 0) {
-                return buffer;
-            }
-            
-            const samples = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
-            let sum = 0;
-            
-            for (let i = 0; i < samples.length; i++) {
-                const sample = samples[i] / 32768;
-                sum += sample * sample;
-            }
-            
-            const currentRMS = Math.sqrt(sum / samples.length);
-            if (currentRMS === 0) return buffer;
-            
-            const gain = Math.min(targetRMS / currentRMS, 3.0);
-            
-            for (let i = 0; i < samples.length; i++) {
-                samples[i] = Math.max(-32768, Math.min(32767, samples[i] * gain));
-            }
-            
-            return Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
-        } catch (error) {
-            console.warn('Audio normalization failed:', error);
-            return buffer;
+      const decoder = new TextDecoder();
+      let uint8Array = new Uint8Array(webmBuffer);
+      let header = '';
+      let headerEndIndex = 0;
+
+      for (let i = 0; i < Math.min(1000, uint8Array.length); i++) {
+        header += String.fromCharCode(uint8Array[i]);
+        if (header.endsWith('`')) {
+          headerEndIndex = i + 1;
+          break;
         }
+      }
+
+      if (headerEndIndex === 0) {
+        console.warn('WebM header end marker not found');
+        return Buffer.alloc(0);
+      }
+
+      const audioData = webmBuffer.subarray(headerEndIndex);
+      return audioData;
+
+    } catch (error) {
+      console.error('Audio conversion error:', error);
+      return Buffer.alloc(0);
     }
+  }
+
+  static normalizeAudio(buffer) {
+    try {
+      if (buffer.length === 0) return buffer;
+      const samples = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const sample = samples[i] / 32768;
+        sum += sample * sample;
+      }
+      const currentRMS = Math.sqrt(sum / samples.length);
+      if (currentRMS === 0) return buffer;
+      const targetRMS = 0.1;
+      const gain = Math.min(targetRMS / currentRMS, 3.0);
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = Math.max(-32768, Math.min(32767, samples[i] * gain));
+      }
+      return Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
+    } catch (error) {
+      console.warn('Audio normalization failed:', error);
+      return buffer;
+    }
+  }
 }
 
-class DeepgramStreamingASR {
-    constructor() {
-        this.apiKey = config.deepgram.apiKey;
-        this.client = this.apiKey && !config.mock.deepgram ? createClient(this.apiKey) : null;
-        this.activeConnections = new Map();
-        this.currentModel = config.deepgram.currentModel;
-        this.mockMode = config.mock.deepgram || !this.apiKey;
-        
-        console.log(`Deepgram ASR initialized with streaming model: ${this.currentModel}`);
-        if (this.mockMode) {
-            console.log('🎭 Deepgram MOCK MODE ENABLED - using hardcoded responses');
-        } else {
-            console.log('✅ Deepgram LIVE MODE - using real API');
-        }
-        
-        if (!this.apiKey && !config.mock.deepgram) {
-            console.warn('WARNING: No Deepgram API key found - auto-enabling mock mode');
-        }
+class GroqStreamingClient {
+  constructor() {
+    this.apiKey = config.groq.apiKey;
+    this.model = config.groq.model;
+    this.mockMode = config.mock.llm || !this.apiKey;
+    this.systemPrompt = "You are a helpful, friendly, and concise AI assistant. Keep responses brief and conversational. If the user is still speaking (indicated by 'partial' context), acknowledge briefly or wait for more. If they've finished ('complete' context), provide a full, helpful response. Avoid markdown, just plain text.";
+
+    if (this.mockMode) {
+      console.log('🎭 Groq LLM MOCK MODE ENABLED');
+    } else if (this.apiKey) {
+      this.client = new Groq({ apiKey: this.apiKey });
+      console.log(`✅ Groq LLM LIVE MODE - using model: ${this.model}`);
+    } else {
+      console.log('⚠️ Groq LLM DISABLED - no API key');
     }
 
-    createStreamingConnection(callSid, onTranscript, onError) {
-        if (this.mockMode) {
-            console.log(`[${callSid}] ASR: Mock mode enabled, creating mock connection`);
-            return this.createMockConnection(callSid, onTranscript, onError);
-        }
+    this.fallbackResponses = [
+      "I understand. How else can I help?",
+      "Thanks for that. What else would you like to know?",
+      "Got it. Is there anything specific you'd like assistance with?",
+      "I'm here to help. What's your next question?",
+      "That's helpful context. How can I assist you further?"
+    ];
+    this.fallbackIndex = 0;
+  }
 
-        try {
-            console.log(`[${callSid}] Creating Deepgram streaming connection`);
-            
-            const connectionOptions = {
-                model: this.currentModel,
-                language: config.deepgram.language,
-                encoding: 'linear16',
-                sample_rate: 16000,
-                channels: 1,
-                smart_format: true,
-                interim_results: true,
-                utterance_end_ms: 300,
-                vad_events: true,
-                endpointing: 100,
-                no_delay: true,
-                punctuate: true,
-                profanity_filter: false
-            };
+  async generateStreamingResponse(conversationHistory, currentTranscript, isComplete, callSid, onToken, onComplete) {
+    const startTime = Date.now();
+    console.log(`[${callSid}] LLM: Generating response (complete: ${isComplete}) for: "${currentTranscript}"`);
 
-            const connection = this.client.listen.live(connectionOptions);
-            let connectionEstablished = false;
-
-            const connectionTimeout = setTimeout(() => {
-                if (!connectionEstablished) {
-                    console.error(`[${callSid}] Deepgram connection timeout - falling back to mock mode`);
-                    connection.finish();
-                    const mockConnection = this.createMockConnection(callSid, onTranscript, onError);
-                    this.activeConnections.set(callSid, mockConnection);
-                }
-            }, config.connection.connectionTimeout);
-
-            connection.on('open', () => {
-                connectionEstablished = true;
-                clearTimeout(connectionTimeout);
-                console.log(`[${callSid}] Deepgram streaming connection opened`);
-            });
-
-            connection.on('transcript', (data) => {
-                try {
-                    if (data.channel?.alternatives?.[0]?.transcript) {
-                        const transcript = data.channel.alternatives[0].transcript.trim();
-                        if (transcript) {
-                            console.log(`[${callSid}] Deepgram transcript: "${transcript}"`);
-                            
-                            onTranscript({
-                                text: transcript,
-                                confidence: data.channel.alternatives[0].confidence || 0,
-                                is_final: data.is_final || false,
-                                speech_final: data.speech_final || false,
-                                model: this.currentModel,
-                                source: 'deepgram',
-                                timestamp: Date.now()
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error(`[${callSid}] Error processing transcript:`, error);
-                }
-            });
-
-            connection.on('error', (error) => {
-                console.error(`[${callSid}] Deepgram streaming error:`, error.message || error);
-                clearTimeout(connectionTimeout);
-                
-                if (!connectionEstablished) {
-                    console.log(`[${callSid}] Switching to mock mode due to connection error`);
-                    const mockConnection = this.createMockConnection(callSid, onTranscript, onError);
-                    this.activeConnections.set(callSid, mockConnection);
-                }
-            });
-
-            connection.on('close', (event) => {
-                console.log(`[${callSid}] Deepgram connection closed`);
-                clearTimeout(connectionTimeout);
-                this.activeConnections.delete(callSid);
-            });
-
-            this.activeConnections.set(callSid, connection);
-            return connection;
-
-        } catch (error) {
-            console.error(`[${callSid}] Failed to create Deepgram connection:`, error);
-            return this.createMockConnection(callSid, onTranscript, onError);
-        }
+    if (this.mockMode) {
+      console.log(`[${callSid}] LLM: Mock mode enabled, using hardcoded response`);
+      const mockResponse = await this.getMockResponse(currentTranscript, isComplete);
+      const words = mockResponse.split(' ');
+      let accumulated = '';
+      for (const word of words) {
+        accumulated += word + ' ';
+        onToken(word + ' ');
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      onComplete();
+      const latency = Date.now() - startTime;
+      return { text: mockResponse, latency };
     }
 
-    createMockConnection(callSid, onTranscript, onError) {
-        console.log(`[${callSid}] Creating mock transcription connection`);
-        
-        const mockConnection = {
-            readyState: 1,
-            audioChunkCount: 0,
-            lastTranscriptTime: 0,
-            send: (audioBuffer) => {
-                mockConnection.audioChunkCount++;
-                
-                // Generate mock transcript every 15-25 chunks to simulate realistic speech
-                const shouldTranscribe = mockConnection.audioChunkCount >= 15 && 
-                                       mockConnection.audioChunkCount % (15 + Math.floor(Math.random() * 10)) === 0 &&
-                                       audioBuffer.length > 500;
-                
-                if (shouldTranscribe) {
-                    const mockTexts = [
-                        "Hello there, how are you doing today?",
-                        "I have a question about artificial intelligence.",
-                        "Can you help me understand how this works?",
-                        "What do you think about the weather?",
-                        "I'm testing the voice recognition system.",
-                        "This is a sample message for testing.",
-                        "How does machine learning actually work?",
-                        "Could you explain that in more detail?",
-                        "I'm curious about your capabilities.",
-                        "What can you tell me about technology?"
-                    ];
-                    
-                    const randomText = mockTexts[Math.floor(Math.random() * mockTexts.length)];
-                    
-                    console.log(`[${callSid}] Mock transcript generated: "${randomText}"`);
-                    
-                    setTimeout(() => {
-                        onTranscript({
-                            text: randomText,
-                            confidence: 0.85 + Math.random() * 0.1,
-                            is_final: true,
-                            speech_final: true,
-                            model: 'mock',
-                            source: 'mock',
-                            timestamp: Date.now()
-                        });
-                    }, 200 + Math.random() * 300);
-                    
-                    mockConnection.audioChunkCount = 0;
-                }
-                return true;
-            },
-            finish: () => {
-                console.log(`[${callSid}] Mock connection finished`);
-            },
-            getReadyState: () => 1,
-            on: () => {}
-        };
-        
-        // IMPORTANT: Store the mock connection so sendAudio can find it
-        this.activeConnections.set(callSid, mockConnection);
-        
-        return mockConnection;
+    if (!this.client) {
+      throw new Error('Groq client not initialized');
     }
 
-    sendAudio(callSid, audioBuffer) {
-        const connection = this.activeConnections.get(callSid);
-        if (!connection) {
-            console.warn(`[${callSid}] No connection found for audio`);
-            return false;
+    const messages = [{ role: "system", content: this.systemPrompt }];
+    conversationHistory.slice(-4).forEach(item => {
+      if (item.userText) {
+        messages.push({ role: "user", content: item.userText });
+        if (item.response) {
+          messages.push({ role: "assistant", content: item.response });
         }
+      }
+    });
 
-        try {
-            const readyState = connection.getReadyState();
-            
-            if (readyState === 1) {
-                let processedBuffer = audioBuffer;
-                if (config.audio.enableFormatConversion) {
-                    processedBuffer = AudioFormatConverter.webmToPcm(audioBuffer);
-                    processedBuffer = AudioFormatConverter.normalizeAudioLevel(processedBuffer);
-                }
-                
-                connection.send(processedBuffer);
-                return true;
-            } else {
-                console.warn(`[${callSid}] Connection not ready (state: ${readyState})`);
-                return false;
-            }
-        } catch (error) {
-            console.error(`[${callSid}] Error sending audio:`, error);
-            return false;
-        }
+    const contextMessage = isComplete ?
+      `User just finished saying: "${currentTranscript}". Provide a complete but brief response.` :
+      `User is speaking, partial transcript so far: "${currentTranscript}". This is ongoing - more is coming. Acknowledge briefly if appropriate, or wait for more.`;
+    messages.push({ role: "user", content: contextMessage });
+
+    try {
+      const stream = await this.client.chat.completions.create({
+        messages: messages,
+        model: this.model,
+        stream: true,
+        max_tokens: isComplete ? 150 : 50,
+        temperature: 0.7,
+        top_p: 0.8
+      });
+
+      let fullResponse = '';
+      for await (const chunk of stream) {
+        const token = chunk.choices[0]?.delta?.content || '';
+        fullResponse += token;
+        onToken(token);
+      }
+      onComplete();
+      const latency = Date.now() - startTime;
+      console.log(`[${callSid}] LLM: Stream completed (${latency}ms, complete: ${isComplete})`);
+      return { text: fullResponse.trim(), latency };
+    } catch (error) {
+      console.error(`[${callSid}] LLM: Streaming error:`, error.message || error);
+      const fallbackResponse = this.getFallbackResponse(currentTranscript);
+      const words = fallbackResponse.split(' ');
+      let accumulated = '';
+      for (const word of words) {
+        accumulated += word + ' ';
+        onToken(word + ' ');
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      onComplete();
+      const latency = Date.now() - startTime;
+      return { text: fallbackResponse, latency };
     }
+  }
 
-    closeStreamingConnection(callSid) {
-        const connection = this.activeConnections.get(callSid);
-        if (connection && connection.finish) {
-            try {
-                connection.finish();
-            } catch (error) {
-                console.error(`[${callSid}] Error closing connection:`, error);
-            }
-        }
-        this.activeConnections.delete(callSid);
-    }
-
-    cleanup() {
-        for (const [callSid, connection] of this.activeConnections) {
-            try {
-                if (connection.finish) connection.finish();
-            } catch (error) {}
-        }
-        this.activeConnections.clear();
-    }
-}
-
-class GeminiStreamingClient {
-    constructor() {
-        this.apiKey = config.gemini.apiKey;
-        this.options = {
-            hostname: config.gemini.baseUrl,
-            path: config.gemini.endpoint,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-goog-api-key': this.apiKey
-            }
-        };
-        this.systemPrompt = `You are an AI assistant in a live voice conversation. Keep responses VERY SHORT (1-2 sentences max).
-Be conversational, natural, and helpful. No markdown, lists, or complex formatting.
-This is real-time speech - be concise and sound natural when spoken aloud.
-
-IMPORTANT: You will receive transcripts in real-time as the user speaks. Respond appropriately:
-- If you receive partial transcripts, acknowledge briefly and wait for more
-- When you receive a complete thought or question, provide a full but concise response
-- Be patient and conversational throughout the process`;
-        
-        this.mockMode = config.mock.llm || !this.apiKey;
-        this.fallbackResponses = [
-            "I understand. What else would you like to know?",
-            "That's interesting. Can you tell me more?",
-            "I see what you mean. How can I help with that?",
-            "Got it. What's your next question?",
-            "That makes sense. What else is on your mind?"
-        ];
-        this.fallbackIndex = 0;
-
-        if (this.mockMode) {
-            console.log('🎭 Gemini MOCK MODE ENABLED - using hardcoded responses');
-        } else {
-            console.log('✅ Gemini LIVE MODE - using real API');
-        }
-    }
-
-    async generateStreamingResponse(conversationHistory, currentTranscript, isComplete, callSid) {
-        const startTime = Date.now();
-        
-        if (this.mockMode) {
-            console.log(`[${callSid}] LLM: Mock mode enabled, using hardcoded response`);
-            return this.getMockResponse(currentTranscript, isComplete);
-        }
-        
-        if (!this.apiKey) {
-            console.log(`[${callSid}] LLM: No API key, using fallback response`);
-            return this.getFallbackResponse(currentTranscript);
-        }
-
-        const messages = [
-            { parts: [{ text: this.systemPrompt }], role: "user" },
-            { parts: [{ text: "I understand. I'll keep responses very short and conversational." }], role: "model" }
-        ];
-
-        conversationHistory.slice(-4).forEach(item => {
-            if (item.userText) {
-                messages.push({ parts: [{ text: `User: "${item.userText}"` }], role: "user" });
-                if (item.response) {
-                    messages.push({ parts: [{ text: item.response }], role: "model" });
-                }
-            }
-        });
-
-        const contextMessage = isComplete 
-            ? `User just finished saying: "${currentTranscript}". Provide a complete but brief response.`
-            : `User is speaking, partial transcript so far: "${currentTranscript}". This is ongoing - more is coming. Acknowledge briefly if appropriate, or wait for more.`;
-            
-        messages.push({
-            parts: [{ text: contextMessage }],
-            role: "user"
-        });
-
-        return new Promise((resolve) => {
-            const postData = JSON.stringify({
-                contents: messages,
-                generationConfig: {
-                    maxOutputTokens: isComplete ? 150 : 50,
-                    temperature: 0.7,
-                    topP: 0.8
-                }
-            });
-
-            const req = https.request({
-                ...this.options,
-                headers: {
-                    ...this.options.headers,
-                    'Content-Length': Buffer.byteLength(postData)
-                }
-            }, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    const duration = Date.now() - startTime;
-                    try {
-                        if (res.statusCode !== 200) {
-                            console.log(`[${callSid}] LLM: Error ${res.statusCode}, using fallback`);
-                            resolve(this.getFallbackResponse(currentTranscript));
-                            return;
-                        }
-                        const response = JSON.parse(data);
-                        const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
-                        const responseText = text || this.getFallbackResponse(currentTranscript);
-                        const cleanedResponse = responseText
-                            .replace(/\*\*/g, '')
-                            .replace(/\*/g, '')
-                            .replace(/`/g, '')
-                            .replace(/#{1,6}\s/g, '')
-                            .replace(/\n+/g, ' ')
-                            .trim();
-                        console.log(`[${callSid}] LLM: "${cleanedResponse}" (${duration}ms, complete: ${isComplete})`);
-                        resolve(cleanedResponse);
-                    } catch (error) {
-                        console.log(`[${callSid}] LLM: Parse error, using fallback`);
-                        resolve(this.getFallbackResponse(currentTranscript));
-                    }
-                });
-            });
-
-            req.on('error', () => {
-                console.log(`[${callSid}] LLM: Connection error, using fallback`);
-                resolve(this.getFallbackResponse(currentTranscript));
-            });
-
-            req.setTimeout(8000, () => {
-                req.destroy();
-                resolve(this.getFallbackResponse(currentTranscript));
-            });
-
-            req.write(postData);
-            req.end();
-        });
-    }
-
-    getMockResponse(input, isComplete) {
-        const delay = 500 + Math.random() * 1000;
-        
-        return new Promise(resolve => {
-            setTimeout(() => {
-                const lowerInput = input.toLowerCase();
-                
-                let response;
-                if (lowerInput.includes('hello') || lowerInput.includes('hi')) {
-                    response = "Hello! Great to meet you. How can I help you today?";
-                } else if (lowerInput.includes('how are you')) {
-                    response = "I'm doing well, thank you for asking! How are you doing?";
-                } else if (lowerInput.includes('weather')) {
-                    response = "I can't check the current weather, but I hope it's nice where you are!";
-                } else if (lowerInput.includes('artificial intelligence') || lowerInput.includes('ai') || lowerInput.includes('machine learning')) {
-                    response = "AI is a fascinating field! I'm happy to discuss it with you.";
-                } else if (lowerInput.includes('question') || lowerInput.includes('help')) {
-                    response = "Sure! I'd be happy to help answer your question.";
-                } else if (lowerInput.includes('test')) {
-                    response = "This test is working great! The voice system seems to be functioning well.";
-                } else if (lowerInput.includes('explain') || lowerInput.includes('how does') || lowerInput.includes('what')) {
-                    response = "That's a great question! Let me think about the best way to explain that.";
-                } else if (lowerInput.includes('thank')) {
-                    response = "You're very welcome! Happy to help anytime.";
-                } else if (lowerInput.includes('bye') || lowerInput.includes('goodbye')) {
-                    response = "Goodbye! It was great talking with you today.";
-                } else if (!isComplete) {
-                    const acks = ["I'm listening...", "Go on...", "Mm-hmm...", "I see..."];
-                    response = acks[Math.floor(Math.random() * acks.length)];
-                } else {
-                    const defaults = [
-                        "That's interesting! Tell me more about that.",
-                        "I understand what you're saying. What else would you like to discuss?",
-                        "Thanks for sharing that with me. How can I help further?",
-                        "I hear you. What's your next question?",
-                        "That makes sense. What else is on your mind?"
-                    ];
-                    response = defaults[Math.floor(Math.random() * defaults.length)];
-                }
-                
-                resolve(response);
-            }, delay);
-        });
-    }
-
-    getFallbackResponse(input) {
+  getMockResponse(input, isComplete) {
+    const delay = 500 + Math.random() * 1000;
+    return new Promise(resolve => {
+      setTimeout(() => {
         const lowerInput = input.toLowerCase();
-        
+        let response;
         if (lowerInput.includes('hello') || lowerInput.includes('hi')) {
-            return "Hello! How can I help you today?";
+          response = "Hello! Great to meet you. How can I help you today?";
         } else if (lowerInput.includes('how are you')) {
-            return "I'm doing well, thank you for asking!";
+          response = "I'm doing well, thank you for asking! How are you doing?";
+        } else if (lowerInput.includes('weather')) {
+          response = "I don't have real-time weather data, but I hope it's nice where you are!";
+        } else if (lowerInput.includes('test')) {
+          response = "This test is working great! The voice system seems to be functioning well.";
+        } else if (lowerInput.includes('explain') || lowerInput.includes('how does') || lowerInput.includes('what')) {
+          response = "That's a great question! Let me think about the best way to explain that.";
         } else if (lowerInput.includes('thank')) {
-            return "You're welcome!";
+          response = "You're very welcome! Happy to help anytime.";
         } else if (lowerInput.includes('bye') || lowerInput.includes('goodbye')) {
-            return "Goodbye! Have a great day!";
+          response = "Goodbye! It was great talking with you today.";
+        } else if (!isComplete) {
+          const acks = ["I'm listening...", "Go on...", "Mm-hmm...", "I see..."];
+          response = acks[Math.floor(Math.random() * acks.length)];
         } else {
-            const response = this.fallbackResponses[this.fallbackIndex % this.fallbackResponses.length];
-            this.fallbackIndex++;
-            return response;
+          const defaults = [
+            "That's interesting! Tell me more about that.",
+            "I understand what you're saying. What else would you like to discuss?",
+            "Thanks for sharing that with me. How can I help further?",
+            "I hear you. What's your next question?",
+            "That makes sense. What else is on your mind?"
+          ];
+          response = defaults[Math.floor(Math.random() * defaults.length)];
         }
+        resolve(response);
+      }, delay);
+    });
+  }
+
+  getFallbackResponse(input) {
+    const lowerInput = input.toLowerCase();
+    if (lowerInput.includes('hello') || lowerInput.includes('hi')) {
+      return "Hello! How can I help you today?";
+    } else if (lowerInput.includes('how are you')) {
+      return "I'm doing well, thank you for asking!";
+    } else if (lowerInput.includes('thank')) {
+      return "You're welcome!";
+    } else if (lowerInput.includes('bye') || lowerInput.includes('goodbye')) {
+      return "Goodbye! Have a great day!";
+    } else {
+      const response = this.fallbackResponses[this.fallbackIndex % this.fallbackResponses.length];
+      this.fallbackIndex++;
+      return response;
     }
+  }
 }
 
-class ElevenLabsTTS {
-    constructor() {
-        this.apiKey = config.elevenlabs.apiKey;
-        this.baseUrl = config.elevenlabs.baseUrl;
-        this.voiceId = config.elevenlabs.voiceId;
-        this.model = config.elevenlabs.model;
+class DeepgramTTSClient {
+  constructor() {
+    this.apiKey = config.deepgram.apiKey;
+    this.voice = config.deepgram.ttsVoice;
+    this.mockMode = config.mock.deepgram || !this.apiKey;
+
+    if (this.mockMode) {
+      console.log('🎭 Deepgram TTS MOCK MODE ENABLED - returning text only');
+    } else if (this.apiKey) {
+      console.log(`✅ Deepgram TTS LIVE MODE - using voice: ${this.voice}`);
+    } else {
+      console.log('⚠️ Deepgram TTS DISABLED - no API key');
+    }
+    if (!this.apiKey && !config.mock.deepgram) {
+      console.warn('WARNING: No Deepgram API key found for TTS - will use mock mode');
+    }
+  }
+
+  async generateSpeech(text, callSid) {
+    const startTime = Date.now();
+    console.log(`[${callSid}] TTS: Generating speech for: "${text}"`);
+
+    if (this.mockMode || !this.apiKey) {
+      console.log(`[${callSid}] TTS: Mock mode - returning empty buffer`);
+      const latency = Date.now() - startTime;
+      return { text, audioBuffer: Buffer.alloc(0), format: 'mock', voiceId: 'mock', latency };
     }
 
-    async generateSpeech(text, callSid) {
-        const startTime = Date.now();
-        
-        if (!this.apiKey) {
-            console.log(`[${callSid}] TTS: No API key, text only`);
-            return { text, audioBuffer: null };
-        }
+    try {
+      const cleanText = text.replace(/[^\w\s.,!?;:'"-]/gi, '').trim();
+      if (!cleanText) {
+        throw new Error('Empty or invalid text for TTS');
+      }
 
-        const cleanText = text.replace(/[*_`#]/g, '').trim();
-        if (!cleanText) {
-            return { text, audioBuffer: null };
-        }
+      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000& container=none', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text: cleanText })
+      });
 
-        return new Promise((resolve) => {
-            const postData = JSON.stringify({
-                text: cleanText,
-                model_id: this.model,
-                voice_settings: {
-                    stability: 0.7,
-                    similarity_boost: 0.8,
-                    style: 0.2,
-                    use_speaker_boost: true
-                },
-                output_format: "mp3_44100_128"
-            });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-            const options = {
-                hostname: this.baseUrl,
-                path: `/v1/text-to-speech/${this.voiceId}/stream`,
-                method: 'POST',
-                headers: {
-                    'Accept': 'audio/mpeg',
-                    'Content-Type': 'application/json',
-                    'xi-api-key': this.apiKey,
-                    'Content-Length': Buffer.byteLength(postData)
-                }
-            };
-
-            const req = https.request(options, (res) => {
-                const chunks = [];
-                res.on('data', chunk => chunks.push(chunk));
-                res.on('end', () => {
-                    const duration = Date.now() - startTime;
-                    if (res.statusCode === 200) {
-                        const audioBuffer = Buffer.concat(chunks);
-                        console.log(`[${callSid}] TTS: Success ${audioBuffer.length} bytes (${duration}ms)`);
-                        resolve({ text, audioBuffer, format: 'mp3', voiceId: this.voiceId });
-                    } else {
-                        console.log(`[${callSid}] TTS: Error ${res.statusCode}`);
-                        resolve({ text, audioBuffer: null });
-                    }
-                });
-            });
-
-            req.on('error', (error) => {
-                console.log(`[${callSid}] TTS: Error`, error.message);
-                resolve({ text, audioBuffer: null });
-            });
-
-            req.setTimeout(12000, () => {
-                req.destroy();
-                resolve({ text, audioBuffer: null });
-            });
-
-            req.write(postData);
-            req.end();
-        });
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = Buffer.from(arrayBuffer);
+      const latency = Date.now() - startTime;
+      console.log(`[${callSid}] TTS: Success ${audioBuffer.length} bytes (${latency}ms)`);
+      return { text, audioBuffer, format: 'mulaw', voiceId: this.voice, latency };
+    } catch (error) {
+      console.error(`[${callSid}] TTS: Error`, error.message);
+      const latency = Date.now() - startTime;
+      return { text, audioBuffer: null, latency };
     }
+  }
 }
 
 class PushToTalkSession {
-    constructor(callSid, gemini, deepgram, tts, ws) {
-        this.callSid = callSid;
-        this.gemini = gemini;
-        this.deepgram = deepgram;
-        this.tts = tts;
-        this.ws = ws;
+  constructor(callSid, groq, deepgram, tts, ws) {
+    this.callSid = callSid;
+    this.groq = groq;
+    this.deepgram = deepgram;
+    this.tts = tts;
+    this.ws = ws;
+    this.isRecording = false;
+    this.isProcessing = false;
+    this.isPlayingAudio = false;
+    this.conversationHistory = [];
+    this.currentTranscripts = [];
+    this.accumulatedTranscript = '';
+    this.deepgramConnection = null;
+    this.deepgramFailed = false;
+    this.deepgramReady = false;
+    this.sessionStats = {
+      audioChunksReceived: 0,
+      transcriptsReceived: 0,
+      llmResponses: 0,
+      ttsGenerations: 0,
+      audioChunksSent: 0,
+      totalAudioDuration: 0,
+      currentTurn: {
+        startTime: null,
+        endTime: null,
+        audioDuration: 0,
+        asrLatency: 0,
+        llmLatency: 0,
+        ttsLatency: 0
+      }
+    };
+    this.currentTurn = this.sessionStats.currentTurn;
+    console.log(`[${this.callSid}] Push-to-talk session initialized`);
+    this.setupDeepgramConnection();
+  }
 
-        this.isRecording = false;
-        this.isProcessing = false;
-        this.isPlayingAudio = false;
-        
-        this.conversationHistory = [];
-        this.currentTranscripts = [];
-        this.accumulatedTranscript = '';
-        
-        this.deepgramConnection = null;
-        this.deepgramFailed = false;
-        
-        this.sessionStats = {
-            audioChunksReceived: 0,
-            transcriptsReceived: 0,
-            responsesGenerated: 0
+  sendToClient(message) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  handleInterrupt() {
+    console.log(`[${this.callSid}] 🛑 Interrupt detected - stopping all processing`);
+    this.isRecording = false;
+    this.isProcessing = false;
+    this.currentTranscripts = [];
+    this.accumulatedTranscript = '';
+    this.sendToClient({ type: 'interrupted' });
+  }
+
+  async setupDeepgramConnection() {
+    if (this.deepgramConnection) {
+       console.warn(`[${this.callSid}] Deepgram connection already exists, closing before reconnecting`);
+       try {
+           this.deepgramConnection.finish();
+       } catch (e) {
+           console.error(`[${this.callSid}] Error closing existing Deepgram connection:`, e);
+       }
+       this.deepgramConnection = null;
+    }
+
+    this.deepgramFailed = false;
+    this.deepgramReady = false;
+
+    try {
+      const connection = await this.deepgram.createStreamingConnection(
+        this.callSid,
+        (transcript) => this.handleTranscript(transcript)
+      );
+
+      if (connection) {
+        this.deepgramConnection = connection;
+
+        // --- ENHANCED EVENT LISTENERS ---
+        const setReady = () => {
+            console.log(`[${this.callSid}] Deepgram streaming connection ready (Session listener)`);
+            this.deepgramReady = true;
         };
-
-        console.log(`[${callSid}] Push-to-talk session initialized`);
-    }
-
-    async startRecording() {
-        if (this.isRecording) {
-            console.log(`[${this.callSid}] Already recording, ignoring start request`);
-            return;
-        }
-
-        this.handleInterrupt();
-
-        this.isRecording = true;
-        this.currentTranscripts = [];
-        this.accumulatedTranscript = '';
-        
-        console.log(`[${this.callSid}] 🔴 Recording started`);
-
-        this.setupDeepgramConnection();
-
-        this.sendToClient({
-            type: 'recording_started',
-            timestamp: Date.now()
-        });
-    }
-
-    stopRecording() {
-        if (!this.isRecording) {
-            return;
-        }
-
-        this.isRecording = false;
-        console.log(`[${this.callSid}] ⏹️ Recording stopped`);
-
-        if (this.deepgramConnection) {
-            this.deepgram.closeStreamingConnection(this.callSid);
+        const setNotReady = () => {
+            console.log(`[${this.callSid}] Deepgram connection not ready (Session listener)`);
+            this.deepgramReady = false;
             this.deepgramConnection = null;
-        }
-
-        if (this.accumulatedTranscript.trim()) {
-            this.generateFinalResponse();
-        }
-
-        this.sendToClient({
-            type: 'recording_stopped',
-            timestamp: Date.now(),
-            finalTranscript: this.accumulatedTranscript
-        });
-    }
-
-    setupDeepgramConnection() {
-        this.deepgramConnection = this.deepgram.createStreamingConnection(
-            this.callSid,
-            (transcript) => this.handleTranscript(transcript),
-            (error) => {
-                console.error(`[${this.callSid}] Deepgram error:`, error.message);
-                
-                this.sendToClient({
-                    type: 'transcription_error',
-                    error: `Transcription error: ${error.message}`,
-                    timestamp: Date.now()
-                });
-                
-                console.log(`[${this.callSid}] Switching to mock transcription mode`);
-                this.deepgramFailed = true;
-            }
-        );
-        
-        setTimeout(() => {
-            if (this.deepgramConnection && !this.deepgramFailed) {
-                console.log(`[${this.callSid}] Deepgram connection setup complete`);
-            }
-        }, 1000);
-    }
-
-    addAudioData(audioBuffer) {
-        if (!this.isRecording) {
-            return;
-        }
-
-        this.sessionStats.audioChunksReceived++;
-        
-        if (this.deepgramConnection && !this.deepgramFailed) {
-            const success = this.deepgram.sendAudio(this.callSid, audioBuffer);
-            if (!success) {
-                console.warn(`[${this.callSid}] Failed to send audio to Deepgram`);
-            }
-        }
-
-        this.sendToClient({
-            type: 'audio_chunk_processed',
-            chunkSize: audioBuffer.length,
-            timestamp: Date.now()
-        });
-    }
-
-    async handleTranscript(transcript) {
-        if (!transcript.text || !transcript.text.trim()) return;
-
-        this.sessionStats.transcriptsReceived++;
-        console.log(`[${this.callSid}] 📝 Transcript: "${transcript.text}" (final: ${transcript.is_final})`);
-
-        this.sendToClient({
-            type: 'transcript',
-            text: transcript.text,
-            is_final: transcript.is_final,
-            confidence: transcript.confidence,
-            timestamp: Date.now()
-        });
-
-        if (transcript.is_final) {
-            this.currentTranscripts.push(transcript.text);
-            this.accumulatedTranscript = this.currentTranscripts.join(' ');
-        }
-
-        if (this.isRecording && transcript.text.trim()) {
-            await this.sendToLLMStreaming(transcript.text, transcript.is_final);
-        }
-    }
-
-    async sendToLLMStreaming(transcriptText, isComplete) {
-        try {
-            const response = await this.gemini.generateStreamingResponse(
-                this.conversationHistory,
-                transcriptText,
-                isComplete,
-                this.callSid
-            );
-
-            if (!isComplete && response.length < 50) {
-                this.sendToClient({
-                    type: 'llm_acknowledgment',
-                    text: response,
-                    isPartial: true,
-                    timestamp: Date.now()
-                });
-            }
-        } catch (error) {
-            console.error(`[${this.callSid}] Error in streaming LLM call:`, error);
-        }
-    }
-
-    async generateFinalResponse() {
-        if (this.isProcessing || !this.accumulatedTranscript.trim()) {
-            return;
-        }
-
-        this.isProcessing = true;
-        this.sessionStats.responsesGenerated++;
-
-        console.log(`[${this.callSid}] 🤖 Generating final response for: "${this.accumulatedTranscript}"`);
-
-        this.sendToClient({
-            type: 'processing_started',
-            userText: this.accumulatedTranscript,
-            timestamp: Date.now()
-        });
-
-        try {
-            const response = await this.gemini.generateStreamingResponse(
-                this.conversationHistory,
-                this.accumulatedTranscript,
-                true,
-                this.callSid
-            );
-
-            console.log(`[${this.callSid}] ✅ Final response: "${response}"`);
-
-            const ttsResult = await this.tts.generateSpeech(response, this.callSid);
-
-            this.conversationHistory.push({
-                userText: this.accumulatedTranscript,
-                response: response,
-                timestamp: Date.now()
-            });
-
-            if (this.conversationHistory.length > 8) {
-                this.conversationHistory = this.conversationHistory.slice(-6);
-            }
-
-            this.sendToClient({
-                type: 'ai_response',
-                text: response,
-                userText: this.accumulatedTranscript,
-                hasAudio: !!ttsResult.audioBuffer,
-                audioData: ttsResult.audioBuffer ? ttsResult.audioBuffer.toString('base64') : null,
-                audioFormat: ttsResult.format || 'mp3',
-                timestamp: Date.now()
-            });
-
-            if (ttsResult.audioBuffer) {
-                this.isPlayingAudio = true;
-                const wordCount = response.split(' ').length;
-                const estimatedDuration = Math.max(wordCount * 600, 2000);
-                
-                setTimeout(() => {
-                    this.isPlayingAudio = false;
-                    console.log(`[${this.callSid}] 🔇 Audio playback finished`);
-                }, estimatedDuration);
-            }
-
-        } catch (error) {
-            console.error(`[${this.callSid}] Error generating final response:`, error);
-            
-            const fallbackResponse = "I understand. How else can I help you?";
-            this.sendToClient({
-                type: 'ai_response',
-                text: fallbackResponse,
-                userText: this.accumulatedTranscript,
-                hasAudio: false,
-                timestamp: Date.now(),
-                isFallback: true
-            });
-        } finally {
-            this.isProcessing = false;
-        }
-    }
-
-    handleInterrupt() {
-        console.log(`[${this.callSid}] 🛑 Interrupt detected - stopping all processing`);
-        
-        this.isProcessing = false;
-        this.isPlayingAudio = false;
-        this.currentTranscripts = [];
-        this.accumulatedTranscript = '';
-        
-        this.sendToClient({
-            type: 'interrupt',
-            timestamp: Date.now()
-        });
-    }
-
-    sendToClient(message) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            try {
-                this.ws.send(JSON.stringify(message));
-            } catch (error) {
-                console.error(`[${this.callSid}] Error sending to client:`, error);
-            }
-        }
-    }
-
-    getSessionStats() {
-        return {
-            callSid: this.callSid,
-            isRecording: this.isRecording,
-            isProcessing: this.isProcessing,
-            isPlayingAudio: this.isPlayingAudio,
-            conversationLength: this.conversationHistory.length,
-            currentTranscriptLength: this.accumulatedTranscript.length,
-            ...this.sessionStats
         };
+        const setFailed = (error) => {
+            console.error(`[${this.callSid}] Deepgram connection failed (Session listener):`, error?.message || error);
+            this.deepgramReady = false;
+            this.deepgramFailed = true;
+            this.deepgramConnection = null;
+        };
+
+        // Listen for Deepgram SDK specific events
+        connection.on('open', setReady);
+        connection.on('close', setNotReady);
+        connection.on('error', setFailed);
+        // Deepgram SDK might also emit 'ready' or similar, check docs
+        // connection.on('ready', setReady); // Uncomment if 'ready' event exists
+
+        // If connection is already open (unlikely but possible with some async libs), set ready immediately
+        // This check depends on the SDK's internal state representation
+        // A simple check might be:
+        // if (connection.getReadyState && connection.getReadyState() === 1) {
+        //   setReady();
+        // }
+
+      } else {
+        console.error(`[${this.callSid}] Failed to create Deepgram connection`);
+        this.deepgramFailed = true;
+      }
+    } catch (error) {
+      console.error(`[${this.callSid}] Error setting up Deepgram connection:`, error);
+      this.deepgramFailed = true;
+    }
+  }
+
+  startPlayback() {
+    this.isPlayingAudio = true;
+    this.sendToClient({ type: 'playback_started' });
+  }
+
+  async generateTTSForResponse(responseText) {
+    try {
+      this.conversationHistory.push({
+        userText: this.accumulatedTranscript,
+        response: responseText,
+        timestamp: Date.now()
+      });
+      if (this.conversationHistory.length > 8) {
+        this.conversationHistory = this.conversationHistory.slice(-6);
+      }
+
+      const ttsResult = await this.tts.generateSpeech(responseText, this.callSid);
+      this.currentTurn.ttsLatency = ttsResult.latency;
+      this.sessionStats.ttsGenerations++;
+
+      if (ttsResult.audioBuffer && ttsResult.audioBuffer.length > 0) {
+        this.sendToClient({
+          type: 'audio_response',
+          audio: ttsResult.audioBuffer.toString('base64'),
+          format: ttsResult.format,
+          voiceId: ttsResult.voiceId
+        });
+      } else {
+        console.log(`[${this.callSid}] TTS: No audio generated, sending text only`);
+        this.sendToClient({
+          type: 'text_response',
+          text: responseText
+        });
+      }
+    } catch (error) {
+      console.error(`[${this.callSid}] TTS generation error:`, error);
+      this.sendToClient({
+        type: 'text_response',
+        text: responseText
+      });
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  addMessageToHistory(userText, response) {
+    this.conversationHistory.push({ userText, response, timestamp: Date.now() });
+    if (this.conversationHistory.length > 8) {
+      this.conversationHistory = this.conversationHistory.slice(-6);
+    }
+  }
+
+  async generateFinalResponse() {
+    if (this.isProcessing || !this.accumulatedTranscript.trim()) return;
+    this.isProcessing = true;
+
+    console.log(`[${this.callSid}] 🤖 Generating final response for: "${this.accumulatedTranscript}"`);
+    this.sendToClient({
+      type: 'processing_started',
+      userText: this.accumulatedTranscript,
+      timestamp: Date.now()
+    });
+
+    try {
+      let fullResponseText = '';
+      const onToken = (token) => {
+        fullResponseText += token;
+        this.sendToClient({
+          type: 'llm_token',
+          text: token,
+          isPartial: false,
+          timestamp: Date.now()
+        });
+      };
+      const onComplete = () => {
+        this.sendToClient({ type: 'llm_stream_complete', timestamp: Date.now() });
+      };
+
+      const result = await this.groq.generateStreamingResponse(
+        this.conversationHistory,
+        this.accumulatedTranscript,
+        true,
+        this.callSid,
+        onToken,
+        onComplete
+      );
+
+      this.currentTurn.llmLatency = result.latency;
+      this.sessionStats.llmResponses++;
+      await this.generateTTSForResponse(result.text.trim());
+
+    } catch (error) {
+      console.error(`[${this.callSid}] Error generating final response stream:`, error);
+      this.isProcessing = false;
+      this.sendToClient({
+        type: 'llm_error',
+        error: `Final LLM Error: ${error.message}`,
+        timestamp: Date.now()
+      });
+
+      const fallbackResponse = "I understand. How else can I help you?";
+      this.sendToClient({
+        type: 'llm_token',
+        text: fallbackResponse,
+        isPartial: false,
+        timestamp: Date.now()
+      });
+      this.sendToClient({ type: 'llm_stream_complete', timestamp: Date.now() });
+      await this.generateTTSForResponse(fallbackResponse);
+    }
+  }
+
+  startRecording() {
+    if (this.isRecording) return;
+
+    console.log(`[${this.callSid}] 🔴 Recording started`);
+    this.isRecording = true;
+    this.currentTranscripts = [];
+    this.accumulatedTranscript = '';
+    this.currentTurn.startTime = Date.now();
+    this.currentTurn.audioDuration = 0;
+    this.currentTurn.asrLatency = 0;
+    this.currentTurn.llmLatency = 0;
+    this.currentTurn.ttsLatency = 0;
+
+    this.sendToClient({ type: 'recording_started' });
+  }
+
+  stopRecording() {
+    if (!this.isRecording) return;
+
+    console.log(`[${this.callSid}] ⏹️ Recording stopped`);
+    this.isRecording = false;
+    this.currentTurn.endTime = Date.now();
+
+    this.sendToClient({ type: 'recording_stopped' });
+
+    if (this.accumulatedTranscript.trim()) {
+      this.generateFinalResponse();
+    } else {
+      console.log(`[${this.callSid}] No transcript to process after recording stopped`);
+    }
+  }
+
+  addAudioData(audioBuffer) {
+    if (!audioBuffer || audioBuffer.length === 0) return;
+
+    this.sessionStats.audioChunksReceived++;
+    // Note: Duration calculation for compressed audio (WebM/Opus) via buffer size is inaccurate.
+    // this.sessionStats.totalAudioDuration += (audioBuffer.length / (2 * 16000)) * 1000;
+
+    // if (this.isRecording) {
+    //     this.currentTurn.audioDuration += (audioBuffer.length / (2 * 16000)) * 1000;
+    // }
+
+    // Prioritize sending to Deepgram if the connection is ready
+    if (this.deepgramReady && this.deepgramConnection && !this.deepgramFailed) {
+        const success = this.deepgram.sendAudio(this.callSid, audioBuffer, this.deepgramConnection);
+        if (success) {
+            this.sessionStats.audioChunksSent++;
+        } else {
+             console.warn(`[${this.callSid}] Failed to send audio chunk to Deepgram`);
+        }
+    } else if (this.deepgramConnection && !this.deepgramFailed) {
+        // Connection exists but not open yet, delegate queuing
+        console.warn(`[${this.callSid}] Deepgram connection exists but not ready, queuing audio`);
+        const success = this.deepgram.sendAudio(this.callSid, audioBuffer, this.deepgramConnection);
+        if (success) {
+            this.sessionStats.audioChunksSent++;
+        }
+    } else if (this.deepgramFailed) {
+        console.warn(`[${this.callSid}] Deepgram failed, dropping/processing audio locally if fallback configured`);
+        // Potentially trigger local processing or conversion if configured as fallback
+        // For now, just drop or attempt local conversion if config allows and is needed
+         if (config.audio.enableFormatConversion) {
+             console.log(`[${this.callSid}] Deepgram failed, attempting local PCM conversion as fallback (may not work for WebM/Opus)`);
+             // This is likely to fail for WebM/Opus, but attempt as per config
+             const pcmBuffer = AudioFormatConverter.normalizeAudio(AudioFormatConverter.webmToPcm(audioBuffer));
+             // If you had a local ASR fallback, you'd use pcmBuffer here.
+             // Otherwise, just log or drop.
+             console.log(`[${this.callSid}] Local conversion attempted, result size: ${pcmBuffer.length} bytes`);
+         }
+    } else {
+        console.warn(`[${this.callSid}] No Deepgram connection available, dropping audio chunk`);
+        // Potentially trigger local processing or conversion if configured as fallback
+        // For now, just drop
+    }
+  }
+
+
+  handleTranscript(transcript) {
+    this.sessionStats.transcriptsReceived++;
+    if (this.isRecording && transcript.text.trim()) {
+      if (transcript.is_final) {
+        this.currentTranscripts.push(transcript.text);
+        this.accumulatedTranscript = this.currentTranscripts.join(' ');
+      }
+      if (this.isRecording && transcript.text.trim()) {
+        this.sendToLLMStreaming(transcript.text, transcript.is_final);
+      }
+    }
+  }
+
+  async sendToLLMStreaming(transcriptText, isComplete) {
+    try {
+      let fullResponseText = '';
+      const onToken = (token) => {
+        fullResponseText += token;
+        this.sendToClient({
+          type: 'llm_token',
+          text: token,
+          isPartial: !isComplete,
+          timestamp: Date.now()
+        });
+      };
+      const onComplete = () => {
+        this.sendToClient({ type: 'llm_stream_complete', timestamp: Date.now() });
+      };
+
+      const result = await this.groq.generateStreamingResponse(
+        this.conversationHistory,
+        transcriptText,
+        isComplete,
+        this.callSid,
+        onToken,
+        onComplete
+      );
+
+      this.currentTurn.llmLatency = result.latency;
+
+    } catch (error) {
+      console.error(`[${this.callSid}] LLM Streaming Error:`, error.message || error);
+      this.sendToClient({
+        type: 'llm_error',
+        error: `Streaming LLM Error: ${error.message}`,
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  cleanup() {
+    console.log(`[${this.callSid}] Cleaning up PushToTalkSession`);
+    if (this.deepgramConnection) {
+       try {
+         console.log(`[${this.callSid}] Finishing Deepgram connection during cleanup`);
+         this.deepgramConnection.finish();
+       } catch (e) {
+         console.error(`[${this.callSid}] Error finishing Deepgram connection during cleanup:`, e);
+       }
+       this.deepgramConnection = null;
+       this.deepgramReady = false;
     }
 
-    cleanup() {
-        if (this.deepgramConnection) {
-            this.deepgram.closeStreamingConnection(this.callSid);
-        }
-        
-        const stats = this.getSessionStats();
-        console.log(`[${this.callSid}] Session cleanup:`, JSON.stringify(stats, null, 2));
-    }
+    const endTime = Date.now();
+    const sessionDuration = endTime - this.sessionStats.startTime;
+    const stats = {
+      sessionId: this.callSid,
+      duration: `${(sessionDuration / 1000).toFixed(2)}s`,
+      audioChunks: this.sessionStats.audioChunksReceived,
+      transcripts: this.sessionStats.transcriptsReceived,
+      llmResponses: this.sessionStats.llmResponses,
+      ttsGenerations: this.sessionStats.ttsGenerations,
+      audioChunksSent: this.sessionStats.audioChunksSent,
+      totalAudioDuration: `${(this.sessionStats.totalAudioDuration / 1000).toFixed(2)}s`
+    };
+    console.log(`[${this.callSid}] Session cleanup stats:`, JSON.stringify(stats, null, 2));
+  }
 }
 
-class LiveCallGateway {
-    constructor() {
-        this.sessions = new Map();
-        this.gemini = new GeminiStreamingClient();
-        this.deepgram = new DeepgramStreamingASR();
-        this.tts = new ElevenLabsTTS();
-        this.serverStats = {
-            startTime: Date.now(),
-            totalSessions: 0,
-            activeSessions: 0,
-            totalAudioChunks: 0,
-            totalTranscripts: 0,
-            totalResponses: 0
-        };
+class DeepgramStreamingASR {
+  constructor() {
+    this.apiKey = config.deepgram.apiKey;
+    this.mockMode = config.mock.deepgram || !this.apiKey;
+    this.audioQueues = {};
+    this.mockConnections = {};
+
+    if (this.mockMode) {
+      console.log('🎭 Deepgram ASR MOCK MODE ENABLED');
+    } else if (this.apiKey) {
+      this.client = createClient(this.apiKey);
+      console.log('✅ Deepgram ASR LIVE MODE');
+    } else {
+      console.log('⚠️ Deepgram ASR DISABLED - no API key');
+    }
+  }
+
+  // --- UPDATED METHOD STARTS HERE ---
+  async createStreamingConnection(callSid, onTranscript) {
+    console.log(`[${callSid}] Creating Deepgram streaming connection`);
+
+    if (this.mockMode || !this.apiKey) {
+      console.log(`[${callSid}] Using mock Deepgram connection`);
+      const mockConnection = new EventEmitter();
+      mockConnection.readyState = 1; // Simulate OPEN
+      mockConnection.audioChunkCount = 0;
+      mockConnection.send = (audioBuffer) => {
+        mockConnection.audioChunkCount++;
+        const shouldTranscribe = mockConnection.audioChunkCount >= 15 &&
+          mockConnection.audioChunkCount % (15 + Math.floor(Math.random() * 10)) === 0 &&
+          audioBuffer.length > 500;
+        if (shouldTranscribe) {
+          const mockTexts = [
+            "Hello there, how are you doing today?",
+            "I have a question about artificial intelligence.",
+            "Can you help me understand how this works?",
+            "What do you think about the weather?",
+            "I'm testing the voice recognition system.",
+            "This is a sample sentence for testing.",
+            "Could you please explain that concept again?",
+            "I'm interested in learning more about this topic.",
+            "How does this technology function internally?",
+            "Thank you for your assistance with this matter."
+          ];
+          const isFinal = Math.random() > 0.3;
+          const mockText = mockTexts[Math.floor(Math.random() * mockTexts.length)];
+          setTimeout(() => {
+            onTranscript({ text: mockText, is_final: isFinal, confidence: 0.95 });
+          }, 100 + Math.random() * 200);
+        }
+      };
+      mockConnection.finish = () => {
+        mockConnection.emit('close');
+      };
+      this.mockConnections[callSid] = mockConnection;
+      setTimeout(() => mockConnection.emit('open'), 100);
+      return mockConnection;
     }
 
-    async start() {
-        const app = express();
-        app.use(express.static('public'));
+    if (!this.client) {
+      throw new Error('Deepgram client not initialized');
+    }
 
-        app.get('/health', (req, res) => {
-            const uptime = Date.now() - this.serverStats.startTime;
-            res.json({
-                status: 'healthy',
-                uptime: uptime,
-                activeSessions: this.sessions.size,
-                serverStats: this.serverStats,
-                timestamp: new Date().toISOString(),
-                mode: 'push-to-talk'
+    // Configure Deepgram to accept audio/webm;codecs=opus directly
+    // Reference: https://developers.deepgram.com/docs/encoding
+    const connectionOptions = {
+      model: "nova-2", // Or your preferred model
+      encoding: "opus", // Specify Opus encoding for audio/webm;codecs=opus stream
+      sample_rate: 48000, // Opus typically uses 48kHz. Deepgram handles resampling.
+      channels: 1
+      // container: "webm" // Often implied or handled automatically for 'opus' encoding in live streams
+    };
+
+    console.log(`[${callSid}] Deepgram connection options (updated for Opus/WebM):`, JSON.stringify(connectionOptions, null, 2));
+
+    try {
+      const deepgram = this.client.listen.live(connectionOptions);
+
+      // --- ENHANCED EVENT HANDLING ---
+      deepgram.on('open', () => {
+        console.log(`[${callSid}] ✅ Deepgram connection opened successfully`);
+        // SDK might emit 'ready' after internal setup, listen for that too if needed
+        // deepgram.on('ready', () => { console.log(`[${callSid}] Deepgram connection ready`); });
+      });
+
+      deepgram.on('close', () => {
+        console.log(`[${callSid}] ⏹️ Deepgram live connection closed`);
+        if (this.audioQueues[callSid]) {
+          console.log(`[${callSid}] Clearing audio queue on close`);
+          delete this.audioQueues[callSid];
+        }
+      });
+
+      deepgram.on('error', (error) => {
+        // More detailed error logging
+        console.error(`[${callSid}] ❌ Deepgram connection error:`, error.message || error);
+        if (error.stack) {
+            console.error(`[${callSid}] Deepgram error stack:`, error.stack);
+        }
+        if (this.audioQueues[callSid]) {
+          delete this.audioQueues[callSid];
+        }
+      });
+
+      deepgram.on('transcriptReceived', (data) => {
+        try {
+          const transcript = JSON.parse(data);
+          // console.log(`[${callSid}] Raw Deepgram transcript:`, JSON.stringify(transcript, null, 2)); // Optional: for debugging
+          const result = transcript.channel?.alternatives?.[0];
+          if (result && (result.transcript.trim() || result.words?.length > 0)) {
+            onTranscript({
+              text: result.transcript,
+              is_final: transcript.is_final || false,
+              confidence: result.confidence || 0
             });
-        });
-
-        this.httpServer = http.createServer(app);
-        this.wss = new WebSocket.Server({ 
-            server: this.httpServer,
-            perMessageDeflate: false
-        });
-
-        this.httpServer.listen(config.port, () => {
-            console.log(`🚀 Push-to-Talk Voice Server running on port ${config.port}`);
-            console.log(`Access: http://localhost:${config.port}`);
-        });
-
-        this.wss.on('connection', this.handleConnection.bind(this));
-        console.log(`\n🎙️ Push-to-Talk Voice Chat Server Ready`);
-        console.log(` ElevenLabs TTS: ${config.elevenlabs.apiKey ? '✅ Enabled' : '⚠️  Text-only mode'}`);
-        console.log(` Deepgram ASR: ${config.mock.deepgram ? '🎭 Mock Mode' : (config.deepgram.apiKey ? '✅ Live Mode' : '⚠️  Mock fallback')}`);
-        console.log(` Gemini LLM: ${config.mock.llm ? '🎭 Mock Mode' : (config.gemini.apiKey ? '✅ Live Mode' : '⚠️  Fallback responses')}`);
-        if (config.mock.deepgram || config.mock.llm) {
-            console.log(`\n🎭 MOCK MODES ACTIVE - Set MOCK_DEEPGRAM=false and MOCK_LLM=false in .env to use real APIs`);
+          }
+        } catch (parseError) {
+          console.error(`[${callSid}] Error parsing Deepgram transcript:`, parseError);
         }
+      });
+
+      // --- IMPORTANT: Return the connection object ---
+      return deepgram;
+    } catch (error) {
+      console.error(`[${callSid}] Error creating Deepgram connection:`, error);
+      return null;
     }
+  }
+  // --- UPDATED METHOD ENDS HERE ---
 
-    handleConnection(ws, req) {
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const callSid = url.searchParams.get('callSid') || uuidv4();
-        ws.callSid = callSid;
 
-        this.serverStats.totalSessions++;
-        this.serverStats.activeSessions++;
+  // --- UPDATED sendAudio METHOD ---
+  sendAudio(callSid, audioBuffer, connection) {
+    try {
+      // --- SIMPLIFIED: Remove readyState check ---
+      // The Deepgram SDK handles its own internal state and queuing.
+      // If the connection is not open, it will queue the audio internally.
+      if (!connection) {
+        console.warn(`[${callSid}] No connection object provided to sendAudio`);
+        return false;
+      }
 
-        console.log(`[${callSid}] New push-to-talk connection - Total: ${this.serverStats.totalSessions}`);
+      // Directly send the audio buffer. The SDK will handle queuing if needed.
+      connection.send(audioBuffer);
+      return true;
 
-        const session = new PushToTalkSession(
-            callSid,
-            this.gemini,
-            this.deepgram,
-            this.tts,
-            ws
-        );
+    } catch (error) {
+      console.error(`[${callSid}] Error sending audio in DeepgramStreamingASR:`, error.message || error);
+      if (error.stack) {
+          console.error(`[${callSid}] Error stack:`, error.stack);
+      }
+      return false;
+    }
+  }
+  // --- END UPDATED sendAudio METHOD ---
 
-        this.sessions.set(callSid, session);
+  processAudioQueue(callSid, connection) {
+    // ... (implementation can remain similar, but ensure it uses the correct readyState check) ...
+     const queue = this.audioQueues[callSid];
+    if (!queue || queue.length === 0) return;
 
-        ws.on('message', (data) => {
-            try {
-                const message = JSON.parse(data);
-                
-                switch (message.type) {
-                    case 'start_recording':
-                        session.startRecording();
-                        break;
-                        
-                    case 'stop_recording':
-                        session.stopRecording();
-                        break;
-                        
-                    case 'audio_chunk':
-                        if (message.audioData) {
-                            const audioBuffer = Buffer.from(message.audioData, 'base64');
-                            session.addAudioData(audioBuffer);
-                            this.serverStats.totalAudioChunks++;
-                        }
-                        break;
-                        
-                    case 'ping':
-                        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-                        break;
-                        
-                    default:
-                        console.log(`[${callSid}] Unknown message type: ${message.type}`);
-                }
-            } catch (error) {
-                console.error(`[${callSid}] Message parsing error:`, error);
+    console.log(`[${callSid}] Processing audio queue (${queue.length} chunks)`);
+    // Use the same readyState check logic as in sendAudio
+    while (queue.length > 0 && connection.readyState === 1) {
+      const chunk = queue.shift();
+      try {
+        connection.send(chunk);
+      } catch (sendError) {
+        console.error(`[${callSid}] Error sending queued audio:`, sendError.message || sendError);
+        queue.unshift(chunk); // Put it back on the front of the queue
+        break; // Stop processing queue on error
+      }
+    }
+  }
+
+
+  cleanup() {
+    // ... (mock connection cleanup remains the same) ...
+     Object.keys(this.mockConnections).forEach(callSid => {
+      try {
+        this.mockConnections[callSid].finish();
+      } catch (e) {
+        console.error(`Error closing mock connection for ${callSid}:`, e);
+      }
+    });
+    this.mockConnections = {};
+    this.audioQueues = {};
+  }
+}
+
+
+class LiveCallGateway {
+  constructor() {
+    this.sessions = new Map();
+    this.groq = new GroqStreamingClient();
+    this.deepgram = new DeepgramStreamingASR();
+    this.tts = new DeepgramTTSClient();
+    this.serverStats = {
+      startTime: Date.now(),
+      totalSessions: 0,
+      activeSessions: 0,
+      totalAudioChunks: 0,
+      totalTranscripts: 0,
+      totalResponses: 0
+    };
+  }
+
+  async start() {
+    const app = express();
+    app.use(express.static('public'));
+    app.get('/health', (req, res) => {
+      res.json({ status: 'OK', timestamp: new Date().toISOString() });
+    });
+
+    const server = config.useHttps ?
+      https.createServer({
+        key: fs.readFileSync('server.key'),
+        cert: fs.readFileSync('server.cert')
+      }, app) :
+      http.createServer(app);
+
+    const wss = new WebSocket.Server({ server });
+
+    wss.on('connection', (ws, req) => {
+      const callSid = `call_${uuidv4().substring(0, 8)}`;
+      console.log(`[${callSid}] New push-to-talk connection - Total: ${this.sessions.size + 1}`);
+
+      const session = new PushToTalkSession(callSid, this.groq, this.deepgram, this.tts, ws);
+      this.sessions.set(callSid, session);
+      this.serverStats.totalSessions++;
+      this.serverStats.activeSessions = this.sessions.size;
+
+      ws.send(JSON.stringify({ type: 'ready', callSid }));
+
+      ws.on('message', async (message) => {
+        try {
+          if (message instanceof Buffer) {
+            // Increment stat
+            this.serverStats.totalAudioChunks++;
+
+            // Send the raw audio buffer. PushToTalkSession.addAudioData will handle sending it to Deepgram.
+            // If Deepgram connection fails, the session can decide on fallbacks.
+            session.addAudioData(message); // Send the original WebM/Opus buffer
+
+          } else {
+            const data = JSON.parse(message);
+            switch (data.type) {
+              case 'start_recording':
+                session.startRecording();
+                break;
+              case 'stop_recording':
+                session.stopRecording();
+                break;
+              case 'interrupt':
+                session.handleInterrupt();
+                break;
+              default:
+                console.warn(`[${callSid}] Unknown message type:`, data.type);
             }
-        });
+          }
+        } catch (error) {
+          console.error(`[${callSid}] Error processing message:`, error);
+          session.sendToClient({ type: 'error', error: 'Message processing error' });
+        }
+      });
 
-        ws.on('close', () => {
-            console.log(`[${callSid}] Connection closed`);
-            session.cleanup();
-            this.sessions.delete(callSid);
-            this.serverStats.activeSessions--;
-        });
+      ws.on('close', () => {
+        console.log(`[${callSid}] Client disconnected`);
+        session.cleanup();
+        this.sessions.delete(callSid);
+        this.serverStats.activeSessions = this.sessions.size;
+      });
 
-        ws.on('error', (error) => {
-            console.error(`[${callSid}] WebSocket error:`, error);
-            session.cleanup();
-            this.sessions.delete(callSid);
-            this.serverStats.activeSessions--;
-        });
+      ws.on('error', (error) => {
+        console.error(`[${callSid}] WebSocket error:`, error);
+      });
+    });
 
-        ws.send(JSON.stringify({
-            type: 'ready',
-            callSid: callSid,
-            timestamp: Date.now(),
-            serverVersion: '3.0.0-push-to-talk',
-            mode: 'push-to-talk'
-        }));
+    const port = config.port;
+    server.listen(port, () => {
+      console.log(`🚀 Push-to-Talk Voice Server running on port ${port}`);
+      console.log(`Access: ${config.useHttps ? 'https' : 'http'}://localhost:${port}`);
+    });
+
+    const httpPort = config.httpPort;
+    if (httpPort !== port) {
+      const redirectApp = express();
+      redirectApp.use((req, res) => {
+        res.redirect(301, `https://localhost:${port}${req.originalUrl}`);
+      });
+      http.createServer(redirectApp).listen(httpPort, () => {
+        console.log(`🔒 HTTP redirect server running on port ${httpPort}`);
+      });
     }
 
-    async stop() {
-        console.log('Shutting down push-to-talk server...');
-        
-        this.deepgram.cleanup();
+    const shutdown = () => {
+      console.log('\n🛑 Shutting down server...');
+      this.deepgram.cleanup();
+      this.sessions.forEach(session => session.cleanup());
+      this.sessions.clear();
+      wss.close(() => console.log('WebSocket server closed'));
+      server.close(() => console.log('HTTP server closed'));
+      process.exit(0);
+    };
 
-        if (this.wss) {
-            this.wss.clients.forEach(client => client.close());
-            await new Promise(resolve => this.wss.close(resolve));
-        }
-
-        if (this.httpServer) {
-            await new Promise(resolve => this.httpServer.close(resolve));
-        }
-
-        for (const [callSid, session] of this.sessions) {
-            session.cleanup();
-        }
-        this.sessions.clear();
-        
-        console.log('Push-to-talk server shutdown complete');
-    }
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+  }
 }
 
 const gateway = new LiveCallGateway();
-
-const shutdown = () => {
-    console.log('Received shutdown signal...');
-    gateway.stop().then(() => process.exit(0));
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-    shutdown();
-});
-process.on('unhandledRejection', (reason) => {
-    console.error('Unhandled Rejection:', reason);
-    shutdown();
-});
-
-gateway.start().catch((error) => {
-    console.error('Failed to start push-to-talk server:', error);
-    process.exit(1);
-});
+gateway.start().catch(console.error);
