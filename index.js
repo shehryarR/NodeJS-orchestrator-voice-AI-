@@ -42,69 +42,7 @@ const config = {
   }
 };
 
-class AudioFormatConverter {
-  static webmToPcm(webmBuffer) {
-    try {
-      if (webmBuffer.length === 0) return Buffer.alloc(0);
-      if (webmBuffer.length > 44 && webmBuffer.toString('ascii', 0, 4) === 'RIFF') {
-        console.log('Processing WAV format audio');
-        const dataStart = webmBuffer.indexOf('data');
-        if (dataStart !== -1) {
-          return webmBuffer.subarray(dataStart + 4);
-        }
-        return Buffer.alloc(0);
-      }
-
-      const decoder = new TextDecoder();
-      let uint8Array = new Uint8Array(webmBuffer);
-      let header = '';
-      let headerEndIndex = 0;
-
-      for (let i = 0; i < Math.min(1000, uint8Array.length); i++) {
-        header += String.fromCharCode(uint8Array[i]);
-        if (header.endsWith('`')) {
-          headerEndIndex = i + 1;
-          break;
-        }
-      }
-
-      if (headerEndIndex === 0) {
-        console.warn('WebM header end marker not found');
-        return Buffer.alloc(0);
-      }
-
-      const audioData = webmBuffer.subarray(headerEndIndex);
-      return audioData;
-
-    } catch (error) {
-      console.error('Audio conversion error:', error);
-      return Buffer.alloc(0);
-    }
-  }
-
-  static normalizeAudio(buffer) {
-    try {
-      if (buffer.length === 0) return buffer;
-      const samples = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
-      let sum = 0;
-      for (let i = 0; i < samples.length; i++) {
-        const sample = samples[i] / 32768;
-        sum += sample * sample;
-      }
-      const currentRMS = Math.sqrt(sum / samples.length);
-      if (currentRMS === 0) return buffer;
-      const targetRMS = 0.1;
-      const gain = Math.min(targetRMS / currentRMS, 3.0);
-      for (let i = 0; i < samples.length; i++) {
-        samples[i] = Math.max(-32768, Math.min(32767, samples[i] * gain));
-      }
-      return Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
-    } catch (error) {
-      console.warn('Audio normalization failed:', error);
-      return buffer;
-    }
-  }
-}
+// REMOVED: AudioFormatConverter class entirely - no longer needed
 
 class GroqStreamingClient {
   constructor() {
@@ -328,7 +266,7 @@ class DeepgramStreamingASR {
     this.mockMode = config.mock.deepgram || !this.apiKey;
     this.audioQueues = {};
     this.mockConnections = {};
-    this.connectionStates = {}; // Track connection states manually
+    this.connectionStates = {};
 
     if (this.mockMode) {
       console.log('Deepgram ASR MOCK MODE ENABLED');
@@ -346,42 +284,55 @@ class DeepgramStreamingASR {
     if (this.mockMode || !this.apiKey) {
       console.log(`[${callSid}] Using mock Deepgram connection`);
       const mockConnection = new EventEmitter();
-      mockConnection.readyState = 1; // Simulate OPEN
+      mockConnection.readyState = 1;
       mockConnection.audioChunkCount = 0;
       mockConnection.send = (audioBuffer) => {
         mockConnection.audioChunkCount++;
-        const shouldTranscribe = mockConnection.audioChunkCount >= 15 &&
-          mockConnection.audioChunkCount % (15 + Math.floor(Math.random() * 10)) === 0 &&
-          audioBuffer.length > 500;
+        console.log(`[${callSid}] Mock: Received audio chunk ${mockConnection.audioChunkCount} (${audioBuffer.length} bytes)`);
+        
+        const shouldTranscribe = mockConnection.audioChunkCount >= 3 &&
+          mockConnection.audioChunkCount % (2 + Math.floor(Math.random() * 3)) === 0;
+          
         if (shouldTranscribe) {
           const mockTexts = [
-            "Hello there, how are you doing today?",
-            "I have a question about artificial intelligence.",
-            "Can you help me understand how this works?",
-            "What do you think about the weather?",
-            "I'm testing the voice recognition system.",
-            "This is a sample sentence for testing.",
-            "Could you please explain that concept again?",
-            "I'm interested in learning more about this topic.",
-            "How does this technology function internally?",
-            "Thank you for your assistance with this matter."
+            "Hello there how are you doing today",
+            "I have a question about artificial intelligence",
+            "Can you help me understand how this works",
+            "What do you think about the weather",
+            "I'm testing the voice recognition system",
+            "This is working perfectly now",
+            "Could you please explain that concept",
+            "Thank you for your help with this"
           ];
-          const isFinal = Math.random() > 0.3;
+          
           const mockText = mockTexts[Math.floor(Math.random() * mockTexts.length)];
+          const isFinal = Math.random() > 0.4; // Higher chance of final transcripts
+          
+          console.log(`[${callSid}] Mock transcript: "${mockText}" (final: ${isFinal})`);
+          
           setTimeout(() => {
-            onTranscript({ text: mockText, is_final: isFinal, confidence: 0.95 });
+            onTranscript({ 
+              text: mockText, 
+              is_final: isFinal, 
+              confidence: 0.95 
+            });
           }, 100 + Math.random() * 200);
         }
       };
+      
       mockConnection.finish = () => {
         mockConnection.emit('close');
       };
+      
       this.mockConnections[callSid] = mockConnection;
       this.connectionStates[callSid] = 'CONNECTING';
+      
       setTimeout(() => {
         mockConnection.emit('open');
         this.connectionStates[callSid] = 'OPEN';
+        console.log(`[${callSid}] Mock connection ready`);
       }, 100);
+      
       return mockConnection;
     }
 
@@ -389,14 +340,19 @@ class DeepgramStreamingASR {
       throw new Error('Deepgram client not initialized');
     }
 
-    // Initialize connection state as CONNECTING
     this.connectionStates[callSid] = 'CONNECTING';
 
+    // Connection options for WebM/Opus from browser
     const connectionOptions = {
       model: "nova-2",
-      encoding: "opus",
-      sample_rate: 48000,
-      channels: 1
+      encoding: "opus", // Accept WebM container format directly
+      sample_rate: 48000, // Match browser MediaRecorder
+      channels: 1,
+      interim_results: true,
+      punctuate: true,
+      smart_format: true,
+      utterance_end_ms: 1000,
+      vad_events: true
     };
 
     console.log(`[${callSid}] Deepgram connection options:`, JSON.stringify(connectionOptions, null, 2));
@@ -404,12 +360,9 @@ class DeepgramStreamingASR {
     try {
       const deepgram = this.client.listen.live(connectionOptions);
 
-      // Use LiveTranscriptionEvents constants for proper event handling
       deepgram.on(LiveTranscriptionEvents.Open, () => {
         console.log(`[${callSid}] Deepgram connection opened successfully`);
         this.connectionStates[callSid] = 'OPEN';
-        
-        // Process any queued audio
         this.processAudioQueue(callSid, deepgram);
       });
 
@@ -426,9 +379,6 @@ class DeepgramStreamingASR {
       deepgram.on(LiveTranscriptionEvents.Error, (error) => {
         console.error(`[${callSid}] Deepgram connection error:`, error.message || error);
         this.connectionStates[callSid] = 'ERROR';
-        if (error.stack) {
-          console.error(`[${callSid}] Deepgram error stack:`, error.stack);
-        }
         if (this.audioQueues[callSid]) {
           delete this.audioQueues[callSid];
         }
@@ -436,14 +386,19 @@ class DeepgramStreamingASR {
 
       deepgram.on(LiveTranscriptionEvents.Transcript, (data) => {
         try {
-          // The data is already parsed JSON from the SDK
+          console.log(`[${callSid}] Raw Deepgram response:`, JSON.stringify(data, null, 2));
+          
           const result = data.channel?.alternatives?.[0];
-          if (result && (result.transcript.trim() || result.words?.length > 0)) {
-            onTranscript({
-              text: result.transcript,
-              is_final: data.is_final || false,
-              confidence: result.confidence || 0
-            });
+          if (result) {
+            const transcriptText = result.transcript.trim();
+            if (transcriptText || result.words?.length > 0) {
+              console.log(`[${callSid}] Transcript: "${transcriptText}" (final: ${data.is_final}, confidence: ${result.confidence})`);
+              onTranscript({
+                text: transcriptText,
+                is_final: data.is_final || false,
+                confidence: result.confidence || 0
+              });
+            }
           }
         } catch (parseError) {
           console.error(`[${callSid}] Error processing Deepgram transcript:`, parseError);
@@ -452,6 +407,10 @@ class DeepgramStreamingASR {
 
       deepgram.on(LiveTranscriptionEvents.Metadata, (data) => {
         console.log(`[${callSid}] Deepgram metadata:`, data);
+      });
+
+      deepgram.on(LiveTranscriptionEvents.UtteranceEnd, (data) => {
+        console.log(`[${callSid}] Utterance ended:`, data);
       });
 
       return deepgram;
@@ -469,8 +428,12 @@ class DeepgramStreamingASR {
         return false;
       }
 
-      // Use our manually tracked connection state
       const connectionState = this.connectionStates[callSid];
+      
+      // Log first few bytes for debugging (but not too verbose)
+      if (Math.random() < 0.1) { // Log only 10% of chunks to avoid spam
+        console.log(`[${callSid}] Sending audio: ${audioBuffer.length} bytes (state: ${connectionState}), first 16 bytes: ${Array.from(audioBuffer.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+      }
       
       if (connectionState === 'OPEN') {
         connection.send(audioBuffer);
@@ -488,9 +451,6 @@ class DeepgramStreamingASR {
       }
     } catch (error) {
       console.error(`[${callSid}] Error sending audio:`, error.message || error);
-      if (error.stack) {
-        console.error(`[${callSid}] Error stack:`, error.stack);
-      }
       return false;
     }
   }
@@ -507,12 +467,11 @@ class DeepgramStreamingASR {
         connection.send(chunk);
       } catch (sendError) {
         console.error(`[${callSid}] Error sending queued audio:`, sendError.message || sendError);
-        queue.unshift(chunk); // Put it back on the front of the queue
-        break; // Stop processing queue on error
+        queue.unshift(chunk);
+        break;
       }
     }
     
-    // Clean up empty queue
     if (queue.length === 0) {
       delete this.audioQueues[callSid];
     }
@@ -549,7 +508,7 @@ class PushToTalkSession {
     this.deepgramFailed = false;
     this.deepgramReady = false;
     this.sessionStats = {
-      startTime: Date.now(), // Fix: Initialize session start time
+      startTime: Date.now(),
       audioChunksReceived: 0,
       transcriptsReceived: 0,
       llmResponses: 0,
@@ -608,7 +567,6 @@ class PushToTalkSession {
       if (connection) {
         this.deepgramConnection = connection;
 
-        // Listen for the proper Deepgram SDK events
         connection.on(LiveTranscriptionEvents.Open, () => {
           console.log(`[${this.callSid}] Deepgram streaming connection ready (Session listener)`);
           this.deepgramReady = true;
@@ -781,12 +739,14 @@ class PushToTalkSession {
     }
   }
 
+  // SIMPLIFIED: No more audio conversion - send raw WebM data directly to Deepgram
   addAudioData(audioBuffer) {
     if (!audioBuffer || audioBuffer.length === 0) return;
 
+    console.log(`[${this.callSid}] Received raw audio data: ${audioBuffer.length} bytes`);
     this.sessionStats.audioChunksReceived++;
 
-    // Check if Deepgram connection is ready using our state tracking
+    // Send WebM audio directly to Deepgram - NO CONVERSION
     if (this.deepgramReady && this.deepgramConnection && !this.deepgramFailed) {
       const success = this.deepgram.sendAudio(this.callSid, audioBuffer, this.deepgramConnection);
       if (success) {
@@ -795,7 +755,6 @@ class PushToTalkSession {
         console.warn(`[${this.callSid}] Failed to send audio chunk to Deepgram`);
       }
     } else if (this.deepgramConnection && !this.deepgramFailed) {
-      // Connection exists but not open yet, let DeepgramStreamingASR handle queuing
       console.warn(`[${this.callSid}] Deepgram connection exists but not ready, queuing audio`);
       const success = this.deepgram.sendAudio(this.callSid, audioBuffer, this.deepgramConnection);
       if (success) {
@@ -809,15 +768,27 @@ class PushToTalkSession {
   }
 
   handleTranscript(transcript) {
+    console.log(`[${this.callSid}] Processing transcript: "${transcript.text}" (final: ${transcript.is_final})`);
+    
     this.sessionStats.transcriptsReceived++;
+    
+    // Send transcript to client immediately for display
+    this.sendToClient({
+      type: 'transcript_received',
+      text: transcript.text,
+      is_final: transcript.is_final,
+      confidence: transcript.confidence
+    });
+    
     if (this.isRecording && transcript.text.trim()) {
       if (transcript.is_final) {
         this.currentTranscripts.push(transcript.text);
         this.accumulatedTranscript = this.currentTranscripts.join(' ');
+        console.log(`[${this.callSid}] Accumulated transcript: "${this.accumulatedTranscript}"`);
       }
-      if (this.isRecording && transcript.text.trim()) {
-        this.sendToLLMStreaming(transcript.text, transcript.is_final);
-      }
+      
+      // Always send to streaming LLM for real-time responses
+      this.sendToLLMStreaming(transcript.text, transcript.is_final);
     }
   }
 
@@ -933,6 +904,7 @@ class LiveCallGateway {
       ws.on('message', async (message) => {
         try {
           if (message instanceof Buffer) {
+            // Raw WebM audio data - send directly to session
             this.serverStats.totalAudioChunks++;
             session.addAudioData(message);
           } else {
