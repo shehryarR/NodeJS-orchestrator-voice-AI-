@@ -426,6 +426,11 @@ class DeepgramStreamingASR {
         return false;
       }
 
+      if (!audioBuffer || audioBuffer.length === 0) {
+        console.warn(`[${callSid}] Empty or null audio buffer provided to sendAudio`);
+        return false;
+      }
+
       const connectionState = this.connectionStates[callSid];
       
       if (Math.random() < 0.1) {
@@ -745,7 +750,18 @@ class PushToTalkSession {
 
     // Convert Float32Array buffer to Int16Array (linear16) for Deepgram
     try {
-      const float32Array = new Float32Array(audioBuffer.buffer);
+      // Ensure buffer length is multiple of 4 for Float32Array
+      let processBuffer = audioBuffer;
+      const remainder = audioBuffer.length % 4;
+      if (remainder !== 0) {
+        // Pad buffer to make it divisible by 4
+        const paddedLength = audioBuffer.length + (4 - remainder);
+        processBuffer = Buffer.alloc(paddedLength);
+        audioBuffer.copy(processBuffer);
+        console.log(`[${this.callSid}] Padded audio buffer from ${audioBuffer.length} to ${paddedLength} bytes`);
+      }
+
+      const float32Array = new Float32Array(processBuffer.buffer, processBuffer.byteOffset, processBuffer.length / 4);
       const int16Array = new Int16Array(float32Array.length);
       
       for (let i = 0; i < float32Array.length; i++) {
@@ -755,9 +771,12 @@ class PushToTalkSession {
         int16Array[i] = sample * 0x7FFF; // scale to 16-bit
       }
       
+      const convertedBuffer = Buffer.from(int16Array.buffer);
+      console.log(`[${this.callSid}] Converted ${audioBuffer.length} bytes → ${convertedBuffer.length} bytes for Deepgram`);
+      
       // Send converted Int16Array buffer to Deepgram
       if (this.deepgramReady && this.deepgramConnection && !this.deepgramFailed) {
-        const success = this.deepgram.sendAudio(this.callSid, int16Array.buffer, this.deepgramConnection);
+        const success = this.deepgram.sendAudio(this.callSid, convertedBuffer, this.deepgramConnection);
         if (success) {
           this.sessionStats.audioChunksSent++;
         } else {
@@ -765,7 +784,7 @@ class PushToTalkSession {
         }
       } else if (this.deepgramConnection && !this.deepgramFailed) {
         console.warn(`[${this.callSid}] Deepgram connection exists but not ready, queuing audio`);
-        const success = this.deepgram.sendAudio(this.callSid, int16Array.buffer, this.deepgramConnection);
+        const success = this.deepgram.sendAudio(this.callSid, convertedBuffer, this.deepgramConnection);
         if (success) {
           this.sessionStats.audioChunksSent++;
         }
@@ -806,9 +825,12 @@ class PushToTalkSession {
 
   async sendToLLMStreaming(transcriptText, isComplete) {
     try {
+      console.log(`[${this.callSid}] sendToLLMStreaming called with: "${transcriptText}", complete: ${isComplete}`);
+      
       let fullResponseText = '';
       const onToken = (token) => {
         fullResponseText += token;
+        console.log(`[${this.callSid}] LLM token: "${token}"`);
         this.sendToClient({
           type: 'llm_token',
           text: token,
@@ -817,6 +839,7 @@ class PushToTalkSession {
         });
       };
       const onComplete = () => {
+        console.log(`[${this.callSid}] LLM stream completed: "${fullResponseText}"`);
         this.sendToClient({ type: 'llm_stream_complete', timestamp: Date.now() });
       };
 
