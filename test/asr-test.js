@@ -116,7 +116,7 @@ const app = express();
 
 // Serve asr-test.html as root
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'asr-test.html'));
+  res.sendFile(path.join(__dirname, '../public', 'asr-test.html'));
 });
 
 // Serve static files (CSS, JS, images, etc.)
