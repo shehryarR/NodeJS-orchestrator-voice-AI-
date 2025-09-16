@@ -3,1187 +3,566 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Push-to-Talk AI Voice Chat</title>
+    <title>Push-to-Talk Voice Client</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
+            margin: 0;
             padding: 20px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
         }
-
-        .header {
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        
+        h1 {
             text-align: center;
             margin-bottom: 30px;
-        }
-
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
+            font-size: 2.5em;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
         }
-
-        .status-bar {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
+        
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+        
+        .status.connected {
+            background: rgba(76, 175, 80, 0.3);
+            border: 2px solid #4CAF50;
+        }
+        
+        .status.disconnected {
+            background: rgba(244, 67, 54, 0.3);
+            border: 2px solid #F44336;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        .push-to-talk-btn {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            border: none;
+            font-size: 1.2em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        .push-to-talk-btn:not(:disabled) {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+        }
+        
+        .push-to-talk-btn:not(:disabled):hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.6);
+        }
+        
+        .push-to-talk-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .push-to-talk-btn.recording {
+            background: linear-gradient(45deg, #f44336, #d32f2f);
+            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .conversation {
+            background: rgba(255, 255, 255, 0.05);
             border-radius: 15px;
             padding: 20px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255,255,255,0.2);
+            margin: 20px 0;
+            max-height: 400px;
+            overflow-y: auto;
         }
-
-        .status-grid {
+        
+        .message {
+            margin: 15px 0;
+            padding: 12px;
+            border-radius: 10px;
+            word-wrap: break-word;
+        }
+        
+        .user-message {
+            background: rgba(33, 150, 243, 0.3);
+            border-left: 4px solid #2196F3;
+        }
+        
+        .ai-message {
+            background: rgba(76, 175, 80, 0.3);
+            border-left: 4px solid #4CAF50;
+        }
+        
+        .transcript {
+            background: rgba(255, 193, 7, 0.3);
+            border-left: 4px solid #FFC107;
+            font-style: italic;
+        }
+        
+        .instructions {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 0.9em;
+        }
+        
+        .audio-controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .audio-element {
+            display: none;
+        }
+        
+        .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
+            margin: 20px 0;
         }
-
-        .status-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #ff4757;
-            transition: all 0.3s ease;
-        }
-
-        .status-indicator.connected {
-            background: #2ed573;
-            box-shadow: 0 0 10px rgba(46, 213, 115, 0.5);
-        }
-
-        .status-indicator.active {
-            background: #ffa502;
-            animation: pulse 1.5s infinite;
-        }
-
-        .status-indicator.processing {
-            background: #3742fa;
-            animation: processing 2s linear infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.2); opacity: 0.7; }
-        }
-
-        @keyframes processing {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 350px;
-            gap: 20px;
-            flex: 1;
-        }
-
-        .chat-area {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 25px;
-            border: 1px solid rgba(255,255,255,0.2);
-            display: flex;
-            flex-direction: column;
-            min-height: 500px;
-        }
-
-        .controls-panel {
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 25px;
-            border: 1px solid rgba(255,255,255,0.2);
-            height: fit-content;
-        }
-
-        .push-to-talk-button {
-            width: 140px;
-            height: 140px;
-            border-radius: 50%;
-            border: none;
-            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
-            color: white;
-            font-size: 1.3rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin: 20px auto;
-            display: block;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-            position: relative;
-            overflow: hidden;
-            user-select: none;
-            -webkit-user-select: none;
-            -moz-user-select: none;
-        }
-
-        .push-to-talk-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 35px rgba(0,0,0,0.4);
-        }
-
-        .push-to-talk-button:active,
-        .push-to-talk-button.recording {
-            background: linear-gradient(45deg, #2ed573, #1dd1a1);
-            animation: recording-pulse 1s infinite;
-            transform: scale(0.95);
-        }
-
-        .push-to-talk-button.processing {
-            background: linear-gradient(45deg, #ffa502, #ff6348);
-            animation: processing-spin 2s linear infinite;
-            cursor: wait;
-        }
-
-        .push-to-talk-button.playing {
-            background: linear-gradient(45deg, #3742fa, #2f3542);
-            animation: audio-playing 1.5s ease-in-out infinite alternate;
-        }
-
-        .push-to-talk-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            animation: none;
-        }
-
-        @keyframes recording-pulse {
-            0%, 100% { box-shadow: 0 0 20px rgba(46, 213, 115, 0.6); }
-            50% { box-shadow: 0 0 40px rgba(46, 213, 115, 0.9); }
-        }
-
-        @keyframes processing-spin {
-            from { transform: rotate(0deg) scale(0.95); }
-            to { transform: rotate(360deg) scale(0.95); }
-        }
-
-        @keyframes audio-playing {
-            from { box-shadow: 0 0 15px rgba(55, 66, 250, 0.4); }
-            to { box-shadow: 0 0 30px rgba(55, 66, 250, 0.8); }
-        }
-
-        .instructions {
-            text-align: center;
-            margin-bottom: 20px;
-            font-size: 0.9rem;
-            opacity: 0.8;
-            line-height: 1.4;
-        }
-
-        .instructions.recording {
-            color: #2ed573;
-            font-weight: bold;
-        }
-
-        .instructions.processing {
-            color: #ffa502;
-            font-weight: bold;
-        }
-
-        .conversation {
-            flex: 1;
-            overflow-y: auto;
-            margin-bottom: 20px;
-            padding-right: 10px;
-        }
-
-        .conversation::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .conversation::-webkit-scrollbar-track {
-            background: rgba(255,255,255,0.1);
-            border-radius: 3px;
-        }
-
-        .conversation::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.3);
-            border-radius: 3px;
-        }
-
-        .message {
-            margin-bottom: 15px;
-            padding: 15px;
-            border-radius: 15px;
-            max-width: 85%;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .message.user {
-            background: rgba(116, 75, 162, 0.3);
-            margin-left: auto;
-            border-bottom-right-radius: 5px;
-        }
-
-        .message.ai {
-            background: rgba(102, 126, 234, 0.3);
-            margin-right: auto;
-            border-bottom-left-radius: 5px;
-        }
-
-        .message.transcript {
-            background: rgba(255, 255, 255, 0.1);
-            font-style: italic;
-            font-size: 0.9rem;
-            opacity: 0.8;
-            margin-right: auto;
-            max-width: 70%;
-        }
-
-        .message.acknowledgment {
-            background: rgba(255, 165, 0, 0.2);
-            font-size: 0.85rem;
-            opacity: 0.9;
-            margin-right: auto;
-            max-width: 60%;
-            border-left: 3px solid #ffa502;
-        }
-
-        .timestamp {
-            font-size: 0.75rem;
-            opacity: 0.7;
-            margin-top: 5px;
-        }
-
-        .latency-display {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 8px;
+        
+        .stat-item {
+            background: rgba(255, 255, 255, 0.05);
             padding: 10px;
-            margin: 10px 0;
-            text-align: center;
-            font-size: 0.9rem;
-        }
-
-        .latency-value {
-            font-weight: bold;
-            color: #2ed573;
-        }
-
-        .audio-visualizer {
-            height: 60px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 10px;
-            margin: 15px 0;
-            padding: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .visualizer-bars {
-            display: flex;
-            gap: 3px;
-            align-items: center;
-            height: 40px;
-        }
-
-        .bar {
-            width: 4px;
-            background: #2ed573;
-            border-radius: 2px;
-            transition: height 0.1s ease;
-        }
-
-        .settings-group {
-            margin-bottom: 20px;
-        }
-
-        .settings-group h3 {
-            margin-bottom: 10px;
-            font-size: 1rem;
-            opacity: 0.9;
-        }
-
-        .setting-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-        }
-
-        .setting-value {
-            font-weight: bold;
-            color: #2ed573;
-        }
-
-        .clear-button {
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 8px 16px;
             border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-            margin-top: 15px;
+            text-align: center;
         }
-
-        .clear-button:hover {
-            background: rgba(255,255,255,0.3);
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
         }
-
-        .error-message {
-            background: rgba(255, 71, 87, 0.2);
-            border: 1px solid rgba(255, 71, 87, 0.4);
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            color: #ff4757;
-        }
-
-        .keyboard-shortcuts {
-            background: rgba(255,255,255,0.05);
-            border-radius: 10px;
-            padding: 15px;
-            margin-top: 20px;
-            font-size: 0.8rem;
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                grid-template-columns: 1fr;
-            }
-            
-            .controls-panel {
-                order: -1;
-            }
-            
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .push-to-talk-button {
-                width: 120px;
-                height: 120px;
-                font-size: 1.1rem;
-            }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🎤 Push-to-Talk AI Voice Chat</h1>
-            <p>Hold to record, release to send • Real-time transcription & response</p>
+        <h1>🎤 Push-to-Talk Voice Chat</h1>
+        
+        <div id="status" class="status disconnected">
+            Connecting to server...
         </div>
-
-        <div class="status-bar">
-            <div class="status-grid">
-                <div class="status-item">
-                    <div class="status-indicator" id="wsStatus"></div>
-                    <span>WebSocket</span>
-                </div>
-                <div class="status-item">
-                    <div class="status-indicator" id="micStatus"></div>
-                    <span>Microphone</span>
-                </div>
-                <div class="status-item">
-                    <div class="status-indicator" id="recordingStatus"></div>
-                    <span>Recording</span>
-                </div>
-                <div class="status-item">
-                    <div class="status-indicator" id="aiStatus"></div>
-                    <span>AI Processing</span>
-                </div>
+        
+        <div class="instructions">
+            <h3>How to use:</h3>
+            <ul>
+                <li>Click and hold the microphone button to start recording</li>
+                <li>Speak your message while holding the button</li>
+                <li>Release the button to stop recording and send</li>
+                <li>The AI will respond with both text and audio</li>
+            </ul>
+        </div>
+        
+        <div class="controls">
+            <button id="pushToTalkBtn" class="push-to-talk-btn" disabled>
+                <div>🎤</div>
+                <div style="font-size: 0.8em;">Hold to Talk</div>
+            </button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <strong>Connection:</strong> <span id="connectionStat">Connecting...</span>
+            </div>
+            <div class="stat-item">
+                <strong>Audio Chunks:</strong> <span id="audioChunksStat">0</span>
+            </div>
+            <div class="stat-item">
+                <strong>Messages:</strong> <span id="messagesStat">0</span>
             </div>
         </div>
-
-        <div class="main-content">
-            <div class="chat-area">
-                <div class="conversation" id="conversation"></div>
-                
-                <div class="latency-display">
-                    <span>Latency: <span class="latency-value" id="latencyValue">-</span> ms</span>
-                </div>
-                
-                <div class="audio-visualizer" id="visualizerContainer">
-                    <div class="visualizer-bars" id="visualizer">
-                        <!-- Bars will be generated by JavaScript -->
-                    </div>
-                </div>
-
-                <div class="instructions" id="instructions">
-                    Press and hold the button to start recording your message
-                </div>
-
-                <button class="push-to-talk-button" id="pushToTalkButton">
-                    🎙️ Hold to Talk
-                </button>
+        
+        <div class="conversation" id="conversation">
+            <div class="message ai-message">
+                <strong>AI Assistant:</strong> Hello! I'm ready to chat. Hold the microphone button and speak to get started.
             </div>
-
-            <div class="controls-panel">
-                <div class="settings-group">
-                    <h3>Connection Info</h3>
-                    <div class="setting-item">
-                        <span>Call ID:</span>
-                        <span class="setting-value" id="callId">-</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Mode:</span>
-                        <span class="setting-value" id="mode">Push-to-Talk</span>
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <h3>Session Stats</h3>
-                    <div class="setting-item">
-                        <span>Audio Chunks:</span>
-                        <span class="setting-value" id="audioChunks">0</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Transcripts:</span>
-                        <span class="setting-value" id="transcriptCount">0</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Responses:</span>
-                        <span class="setting-value" id="responseCount">0</span>
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <h3>Current State</h3>
-                    <div class="setting-item">
-                        <span>Recording:</span>
-                        <span class="setting-value" id="isRecording">No</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Processing:</span>
-                        <span class="setting-value" id="isProcessing">No</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Playing Audio:</span>
-                        <span class="setting-value" id="isPlayingAudio">No</span>
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <h3>Latency Metrics</h3>
-                    <div class="setting-item">
-                        <span>Avg Latency:</span>
-                        <span class="setting-value" id="avgLatency">-</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Min Latency:</span>
-                        <span class="setting-value" id="minLatency">-</span>
-                    </div>
-                    <div class="setting-item">
-                        <span>Max Latency:</span>
-                        <span class="setting-value" id="maxLatency">-</span>
-                    </div>
-                </div>
-
-                <button class="clear-button" onclick="clearConversation()">
-                    Clear Conversation
-                </button>
-
-                <div class="keyboard-shortcuts">
-                    <strong>Keyboard Shortcuts:</strong><br>
-                    • Space: Hold to record<br>
-                    • Escape: Stop recording<br>
-                    • Enter: Clear conversation
-                </div>
-            </div>
+        </div>
+        
+        <div class="audio-controls">
+            <audio id="audioPlayer" class="audio-element" controls autoplay></audio>
         </div>
     </div>
 
     <script>
-        class PushToTalkVoiceClient {
+        class PushToTalkClient {
             constructor() {
                 this.ws = null;
+                this.isRecording = false;
                 this.mediaRecorder = null;
                 this.audioStream = null;
-                this.audioContext = null;
-                this.analyser = null;
-                this.dataArray = null;
-                
-                // States
-                this.isConnected = false;
-                this.isRecording = false;
-                this.isProcessing = false;
-                this.isPlayingAudio = false;
                 this.callSid = null;
-                
-                // Latency tracking
-                this.latencyMeasurements = [];
-                this.currentLatency = 0;
-                this.avgLatency = 0;
-                this.minLatency = Infinity;
-                this.maxLatency = 0;
-                this.recordingStartTime = 0;
-                
-                // UI elements
-                this.pushToTalkButton = document.getElementById('pushToTalkButton');
-                this.conversation = document.getElementById('conversation');
-                this.visualizer = document.getElementById('visualizer');
-                this.instructions = document.getElementById('instructions');
-                this.latencyValue = document.getElementById('latencyValue');
-                
-                // Status indicators
-                this.wsStatus = document.getElementById('wsStatus');
-                this.micStatus = document.getElementById('micStatus');
-                this.recordingStatus = document.getElementById('recordingStatus');
-                this.aiStatus = document.getElementById('aiStatus');
-                
-                // Stats elements
-                this.callIdElement = document.getElementById('callId');
-                this.audioChunksElement = document.getElementById('audioChunks');
-                this.transcriptCountElement = document.getElementById('transcriptCount');
-                this.responseCountElement = document.getElementById('responseCount');
-                this.isRecordingElement = document.getElementById('isRecording');
-                this.isProcessingElement = document.getElementById('isProcessing');
-                this.isPlayingAudioElement = document.getElementById('isPlayingAudio');
-                
-                // Latency elements
-                this.avgLatencyElement = document.getElementById('avgLatency');
-                this.minLatencyElement = document.getElementById('minLatency');
-                this.maxLatencyElement = document.getElementById('maxLatency');
-                
-                // Session stats
-                this.sessionStats = {
+                this.stats = {
                     audioChunks: 0,
-                    transcriptCount: 0,
-                    responseCount: 0
+                    messages: 0
                 };
                 
-                // Audio processing
-                this.recordingTimer = null;
-                this.currentAudio = null;
-                
-                this.init();
-            }
-
-            async init() {
-                this.setupVisualizerBars();
+                this.initializeElements();
                 this.setupEventListeners();
-                await this.connectToServer();
-                await this.setupMicrophone();
+                this.connect();
             }
-
-            setupVisualizerBars() {
-                this.visualizer.innerHTML = '';
-                for (let i = 0; i < 20; i++) {
-                    const bar = document.createElement('div');
-                    bar.className = 'bar';
-                    bar.style.height = '4px';
-                    this.visualizer.appendChild(bar);
-                }
+            
+            initializeElements() {
+                this.statusEl = document.getElementById('status');
+                this.pushToTalkBtn = document.getElementById('pushToTalkBtn');
+                this.conversationEl = document.getElementById('conversation');
+                this.audioPlayer = document.getElementById('audioPlayer');
+                this.connectionStatEl = document.getElementById('connectionStat');
+                this.audioChunksStatEl = document.getElementById('audioChunksStat');
+                this.messagesStatEl = document.getElementById('messagesStat');
             }
-
+            
             setupEventListeners() {
                 // Mouse events
-                this.pushToTalkButton.addEventListener('mousedown', (e) => {
+                this.pushToTalkBtn.addEventListener('mousedown', (e) => {
                     e.preventDefault();
                     this.startRecording();
                 });
-
-                this.pushToTalkButton.addEventListener('mouseup', (e) => {
+                
+                this.pushToTalkBtn.addEventListener('mouseup', (e) => {
                     e.preventDefault();
                     this.stopRecording();
                 });
-
-                this.pushToTalkButton.addEventListener('mouseleave', (e) => {
+                
+                this.pushToTalkBtn.addEventListener('mouseleave', (e) => {
                     if (this.isRecording) {
                         this.stopRecording();
                     }
                 });
-
+                
                 // Touch events for mobile
-                this.pushToTalkButton.addEventListener('touchstart', (e) => {
+                this.pushToTalkBtn.addEventListener('touchstart', (e) => {
                     e.preventDefault();
                     this.startRecording();
                 });
-
-                this.pushToTalkButton.addEventListener('touchend', (e) => {
+                
+                this.pushToTalkBtn.addEventListener('touchend', (e) => {
                     e.preventDefault();
                     this.stopRecording();
                 });
-
-                // Keyboard events
+                
+                // Keyboard events (spacebar)
                 document.addEventListener('keydown', (e) => {
-                    if (e.code === 'Space' && !this.isRecording && !e.repeat) {
+                    if (e.code === 'Space' && !this.isRecording && !this.pushToTalkBtn.disabled) {
                         e.preventDefault();
                         this.startRecording();
-                    } else if (e.code === 'Escape' && this.isRecording) {
-                        e.preventDefault();
-                        this.stopRecording();
-                    } else if (e.code === 'Enter' && e.ctrlKey) {
-                        e.preventDefault();
-                        this.clearConversation();
                     }
                 });
-
+                
                 document.addEventListener('keyup', (e) => {
                     if (e.code === 'Space' && this.isRecording) {
                         e.preventDefault();
                         this.stopRecording();
                     }
                 });
-
-                // Prevent context menu on button
-                this.pushToTalkButton.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                });
             }
-
-            async connectToServer() {
+            
+            async connect() {
                 try {
                     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    const wsUrl = `${protocol}//${window.location.host}?callSid=${this.generateCallSid()}`;
+                    const wsUrl = `${protocol}//${window.location.host}`;
                     
-                    console.log(`Connecting to: ${wsUrl}`);
                     this.ws = new WebSocket(wsUrl);
                     
                     this.ws.onopen = () => {
-                        this.isConnected = true;
-                        this.updateStatus('ws', 'connected');
-                        console.log('WebSocket connected');
+                        console.log('Connected to server');
+                        this.updateStatus('Connected', true);
+                        this.setupAudio();
                     };
                     
                     this.ws.onmessage = (event) => {
-                        const message = JSON.parse(event.data);
-                        this.handleServerMessage(message);
+                        const data = JSON.parse(event.data);
+                        this.handleServerMessage(data);
                     };
                     
                     this.ws.onclose = () => {
-                        this.isConnected = false;
-                        this.updateStatus('ws', 'disconnected');
-                        console.log('WebSocket disconnected');
-                        
-                        // Attempt to reconnect after 3 seconds
-                        setTimeout(() => this.connectToServer(), 3000);
+                        console.log('Disconnected from server');
+                        this.updateStatus('Disconnected', false);
+                        setTimeout(() => this.connect(), 3000);
                     };
                     
                     this.ws.onerror = (error) => {
-                        console.log(`WebSocket error:`, error);
-                        this.updateStatus('ws', 'error');
+                        console.error('WebSocket error:', error);
+                        this.updateStatus('Connection Error', false);
                     };
-                    
                 } catch (error) {
-                    console.log(`Connection error:`, error);
-                    this.showError(`Failed to connect to server: ${error.message}`);
+                    console.error('Failed to connect:', error);
+                    this.updateStatus('Connection Failed', false);
+                    setTimeout(() => this.connect(), 5000);
                 }
             }
-
-            async setupMicrophone() {
+            
+            async setupAudio() {
                 try {
+                    // Request microphone access with specific constraints for WebM/Opus
                     this.audioStream = await navigator.mediaDevices.getUserMedia({
                         audio: {
                             channelCount: 1,
+                            sampleRate: 48000,
                             echoCancellation: true,
                             noiseSuppression: true,
                             autoGainControl: true
-                            // Removed sampleRate constraint - let browser choose
                         }
                     });
                     
-                    this.setupAudioProcessing();
-                    this.updateStatus('mic', 'connected');
                     console.log('Microphone access granted');
+                    this.pushToTalkBtn.disabled = false;
+                    this.addMessage('system', 'Microphone ready. You can start talking!');
                     
                 } catch (error) {
-                    console.log(`Failed to access microphone:`, error);
-                    this.showError(`Microphone access denied: ${error.message}`);
-                    this.updateStatus('mic', 'error');
+                    console.error('Failed to setup audio:', error);
+                    this.addMessage('error', 'Microphone access denied. Please allow microphone access and refresh.');
+                    this.updateStatus('Microphone Access Denied', false);
                 }
             }
-
-            setupAudioProcessing() {
-                // Create AudioContext with default sample rate (don't force 16kHz)
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            startRecording() {
+                if (this.isRecording || !this.audioStream || this.pushToTalkBtn.disabled) return;
                 
-                const source = this.audioContext.createMediaStreamSource(this.audioStream);
-                this.analyser = this.audioContext.createAnalyser();
-                this.analyser.fftSize = 256;
-                
-                source.connect(this.analyser);
-                this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-                
-                console.log(`AudioContext sample rate: ${this.audioContext.sampleRate}Hz`);
-                
-                // Start visualizer
-                this.updateVisualizer();
-            }
-
-            handleServerMessage(message) {
-                console.log(`Received: ${message.type}`);
-                
-                switch (message.type) {
-                    case 'ready':
-                        this.callSid = message.callSid;
-                        this.callIdElement.textContent = this.callSid.substring(0, 8) + '...';
-                        console.log(`Ready - Call ID: ${this.callSid}`);
-                        break;
-                        
-                    case 'recording_started':
-                        console.log('Server confirmed recording started');
-                        break;
-                        
-                    case 'recording_stopped':
-                        console.log('Server confirmed recording stopped');
-                        if (message.finalTranscript) {
-                            this.addMessage('user', message.finalTranscript, new Date());
-                        }
-                        break;
-                        
-                    case 'audio_chunk_processed':
-                        this.sessionStats.audioChunks++;
-                        this.audioChunksElement.textContent = this.sessionStats.audioChunks;
-                        break;
-                        
-                    case 'transcript':
-                        this.handleTranscript(message);
-                        break;
-                        
-                    case 'llm_acknowledgment':
-                        this.addMessage('acknowledgment', `AI: ${message.text}`, new Date());
-                        break;
-                        
-                    case 'processing_started':
-                        this.setProcessingState(true);
-                        break;
-                        
-                    case 'ai_response':
-                        this.handleAIResponse(message);
-                        break;
-                        
-                    case 'interrupt':
-                        this.handleInterrupt();
-                        break;
-                        
-                    case 'error':
-                        this.showError(message.error);
-                        break;
-                        
-                    case 'pong':
-                        // Heartbeat response
-                        break;
-                }
-            }
-
-            handleTranscript(message) {
-                this.sessionStats.transcriptCount++;
-                this.transcriptCountElement.textContent = this.sessionStats.transcriptCount;
-                
-                // Show real-time transcripts
-                if (message.is_final) {
-                    this.addMessage('transcript', `"${message.text}"`, new Date());
-                }
-            }
-
-            handleAIResponse(message) {
-                // Calculate latency
-                const endTime = Date.now();
-                const latency = endTime - this.recordingStartTime;
-                this.updateLatency(latency);
-                
-                this.sessionStats.responseCount++;
-                this.responseCountElement.textContent = this.sessionStats.responseCount;
-                
-                this.setProcessingState(false);
-                this.addMessage('ai', message.text, new Date());
-                
-                // Play AI audio if available
-                if (message.hasAudio && message.audioData) {
-                    this.playAudio(message.audioData, message.audioFormat);
-                }
-            }
-
-            handleInterrupt() {
-                console.log('Interrupt received from server');
-                this.setProcessingState(false);
-                this.setPlayingAudioState(false);
-                
-                // Stop any currently playing audio
-                if (this.currentAudio) {
-                    this.currentAudio.pause();
-                    this.currentAudio = null;
-                }
-            }
-
-            async startRecording() {
-                if (this.isRecording || !this.isConnected || !this.audioStream) {
-                    return;
-                }
-
-                // Stop any ongoing activities
-                this.handleInterrupt();
-
-                this.isRecording = true;
-                this.recordingStartTime = Date.now(); // Record start time for latency calculation
-                this.setRecordingState(true);
-                
-                console.log('🔴 Starting recording...');
-
                 try {
-                    // Setup MediaRecorder
-                    let mimeType = 'audio/wav';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = 'audio/webm;codecs=opus';
+                    // Use WebM with Opus codec for direct Deepgram compatibility
+                    const options = {
+                        mimeType: 'audio/webm;codecs=opus'
+                    };
+                    
+                    // Fallback for browsers that don't support WebM/Opus
+                    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                        console.warn('WebM/Opus not supported, falling back to default');
+                        options.mimeType = 'audio/webm';
                     }
                     
-                    this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                        mimeType: mimeType
-                    });
+                    this.mediaRecorder = new MediaRecorder(this.audioStream, options);
+                    this.isRecording = true;
                     
-                    this.mediaRecorder.ondataavailable = async (event) => {
-                        if (event.data.size > 0 && this.isConnected && this.isRecording) {
-                            await this.sendAudioChunk(event.data);
+                    this.pushToTalkBtn.classList.add('recording');
+                    this.pushToTalkBtn.innerHTML = '<div>🔴</div><div style="font-size: 0.8em;">Recording...</div>';
+                    
+                    // Send start recording message
+                    this.sendMessage({ type: 'start_recording' });
+                    
+                    this.mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0 && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            // Send raw audio data as binary
+                            this.ws.send(event.data);
+                            this.stats.audioChunks++;
+                            this.updateStats();
                         }
                     };
                     
-                    this.mediaRecorder.onerror = (error) => {
-                        console.error('MediaRecorder error:', error);
-                        this.stopRecording();
-                    };
-
-                    // Start recording and notify server
-                    this.mediaRecorder.start(100); // Collect data every 100ms
-                    
-                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                        this.ws.send(JSON.stringify({
-                            type: 'start_recording',
-                            timestamp: Date.now()
-                        }));
-                    }
+                    this.mediaRecorder.start(100); // Capture in 100ms chunks
+                    console.log('Recording started');
                     
                 } catch (error) {
                     console.error('Failed to start recording:', error);
-                    this.showError(`Failed to start recording: ${error.message}`);
-                    this.setRecordingState(false);
+                    this.addMessage('error', 'Failed to start recording: ' + error.message);
+                    this.isRecording = false;
+                    this.resetButton();
                 }
             }
-
+            
             stopRecording() {
-                if (!this.isRecording) {
-                    return;
-                }
-
-                this.isRecording = false;
-                this.setRecordingState(false);
+                if (!this.isRecording || !this.mediaRecorder) return;
                 
-                console.log('⏹️ Stopping recording...');
-
-                // Stop MediaRecorder
-                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                try {
                     this.mediaRecorder.stop();
-                }
-
-                // Notify server
-                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    this.ws.send(JSON.stringify({
-                        type: 'stop_recording',
-                        timestamp: Date.now()
-                    }));
-                }
-
-                // Set processing state
-                this.setProcessingState(true);
-            }
-
-            async sendAudioChunk(audioBlob) {
-                try {
-                    const arrayBuffer = await audioBlob.arrayBuffer();
-                    const uint8Array = new Uint8Array(arrayBuffer);
-                    const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
+                    this.isRecording = false;
+                    this.resetButton();
                     
-                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                        this.ws.send(JSON.stringify({
-                            type: 'audio_chunk',
-                            audioData: base64,
-                            timestamp: Date.now()
-                        }));
-                    }
+                    // Send stop recording message
+                    this.sendMessage({ type: 'stop_recording' });
+                    console.log('Recording stopped');
+                    
                 } catch (error) {
-                    console.error('Error sending audio chunk:', error);
+                    console.error('Failed to stop recording:', error);
+                    this.addMessage('error', 'Failed to stop recording: ' + error.message);
                 }
             }
-
-            async playAudio(base64Data, format = 'mp3') {
+            
+            resetButton() {
+                this.pushToTalkBtn.classList.remove('recording');
+                this.pushToTalkBtn.innerHTML = '<div>🎤</div><div style="font-size: 0.8em;">Hold to Talk</div>';
+            }
+            
+            handleServerMessage(data) {
+                console.log('Server message:', data);
+                
+                switch (data.type) {
+                    case 'ready':
+                        this.callSid = data.callSid;
+                        console.log('Session ready:', this.callSid);
+                        break;
+                        
+                    case 'recording_started':
+                        this.addMessage('transcript', '🎤 Listening...');
+                        break;
+                        
+                    case 'recording_stopped':
+                        break;
+                        
+                    case 'processing_started':
+                        this.addMessage('user', data.userText);
+                        this.addMessage('ai', '<div class="loading"></div> Thinking...');
+                        break;
+                        
+                    case 'llm_token':
+                        this.updateLastAIMessage(data.text, data.isPartial);
+                        break;
+                        
+                    case 'llm_stream_complete':
+                        // Stream complete, waiting for TTS
+                        break;
+                        
+                    case 'audio_response':
+                        this.playAudio(data.audio, data.format);
+                        break;
+                        
+                    case 'text_response':
+                        // Text-only response (TTS failed or mock mode)
+                        break;
+                        
+                    case 'interrupted':
+                        this.addMessage('system', 'Recording interrupted');
+                        break;
+                        
+                    case 'error':
+                    case 'llm_error':
+                        this.addMessage('error', data.error || 'An error occurred');
+                        break;
+                        
+                    default:
+                        console.log('Unknown message type:', data.type);
+                }
+            }
+            
+            playAudio(base64Audio, format) {
                 try {
-                    this.setPlayingAudioState(true);
+                    if (!base64Audio) return;
                     
-                    const binaryString = atob(base64Data);
+                    const binaryString = atob(base64Audio);
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
                     
-                    const audioBlob = new Blob([bytes], { type: `audio/${format}` });
-                    const audioUrl = URL.createObjectURL(audioBlob);
+                    let mimeType;
+                    if (format === 'mulaw') {
+                        mimeType = 'audio/basic'; // μ-law audio
+                    } else {
+                        mimeType = 'audio/wav'; // fallback
+                    }
                     
-                    this.currentAudio = new Audio(audioUrl);
+                    const blob = new Blob([bytes], { type: mimeType });
+                    const audioUrl = URL.createObjectURL(blob);
                     
-                    this.currentAudio.onended = () => {
-                        URL.revokeObjectURL(audioUrl);
-                        this.setPlayingAudioState(false);
-                        this.currentAudio = null;
-                    };
-                    
-                    this.currentAudio.onerror = (error) => {
-                        console.error('Audio playback error:', error);
-                        URL.revokeObjectURL(audioUrl);
-                        this.setPlayingAudioState(false);
-                        this.currentAudio = null;
-                    };
-                    
-                    await this.currentAudio.play();
+                    this.audioPlayer.src = audioUrl;
+                    this.audioPlayer.play().catch(e => {
+                        console.warn('Audio autoplay failed:', e);
+                        this.addMessage('system', 'Click the audio player to hear the response');
+                    });
                     
                 } catch (error) {
-                    console.error('Error playing audio:', error);
-                    this.setPlayingAudioState(false);
+                    console.error('Failed to play audio:', error);
+                    this.addMessage('error', 'Failed to play audio response');
                 }
             }
-
-            setRecordingState(recording) {
-                this.isRecording = recording;
-                this.isRecordingElement.textContent = recording ? 'Yes' : 'No';
-                
-                if (recording) {
-                    this.pushToTalkButton.classList.add('recording');
-                    this.pushToTalkButton.textContent = '🔴 Recording...';
-                    this.instructions.textContent = 'Recording your message... Release to send';
-                    this.instructions.className = 'instructions recording';
-                    this.updateStatus('recording', 'active');
-                } else {
-                    this.pushToTalkButton.classList.remove('recording');
-                    this.pushToTalkButton.textContent = '🎙️ Hold to Talk';
-                    this.instructions.textContent = 'Press and hold the button to start recording your message';
-                    this.instructions.className = 'instructions';
-                    this.updateStatus('recording', 'disconnected');
+            
+            sendMessage(data) {
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(data));
                 }
             }
-
-            setProcessingState(processing) {
-                this.isProcessing = processing;
-                this.isProcessingElement.textContent = processing ? 'Yes' : 'No';
+            
+            addMessage(type, content) {
+                const messageEl = document.createElement('div');
+                messageEl.className = `message ${type}-message`;
                 
-                if (processing) {
-                    this.pushToTalkButton.classList.add('processing');
-                    this.pushToTalkButton.disabled = true;
-                    this.instructions.textContent = 'Processing your message... Please wait';
-                    this.instructions.className = 'instructions processing';
-                    this.updateStatus('ai', 'processing');
-                } else {
-                    this.pushToTalkButton.classList.remove('processing');
-                    this.pushToTalkButton.disabled = false;
-                    this.instructions.textContent = 'Press and hold the button to start recording your message';
-                    this.instructions.className = 'instructions';
-                    this.updateStatus('ai', 'connected');
-                }
-            }
-
-            setPlayingAudioState(playing) {
-                this.isPlayingAudio = playing;
-                this.isPlayingAudioElement.textContent = playing ? 'Yes' : 'No';
-                
-                if (playing) {
-                    this.pushToTalkButton.classList.add('playing');
-                    this.pushToTalkButton.disabled = true;
-                    this.instructions.textContent = 'AI is speaking... Press button to interrupt';
-                    this.instructions.className = 'instructions';
-                    this.updateStatus('ai', 'active');
-                } else {
-                    this.pushToTalkButton.classList.remove('playing');
-                    if (!this.isProcessing) {
-                        this.pushToTalkButton.disabled = false;
-                        this.instructions.textContent = 'Press and hold the button to start recording your message';
-                        this.instructions.className = 'instructions';
-                    }
-                    this.updateStatus('ai', 'connected');
-                }
-            }
-
-            updateVisualizer() {
-                if (!this.analyser || !this.isRecording) {
-                    // Reset visualizer when not recording
-                    if (!this.isRecording) {
-                        const bars = this.visualizer.children;
-                        for (let bar of bars) {
-                            bar.style.height = '4px';
-                        }
-                    }
-                    if (this.isRecording) {
-                        requestAnimationFrame(() => this.updateVisualizer());
-                    }
-                    return;
-                }
-                
-                this.analyser.getByteFrequencyData(this.dataArray);
-                
-                const bars = this.visualizer.children;
-                const barCount = bars.length;
-                const dataPerBar = Math.floor(this.dataArray.length / barCount);
-                
-                for (let i = 0; i < barCount; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < dataPerBar; j++) {
-                        sum += this.dataArray[i * dataPerBar + j];
-                    }
-                    const average = sum / dataPerBar;
-                    const height = Math.max(4, (average / 255) * 40);
-                    bars[i].style.height = `${height}px`;
-                }
-                
-                requestAnimationFrame(() => this.updateVisualizer());
-            }
-
-            addMessage(type, text, timestamp) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `message ${type}`;
-                
-                const textDiv = document.createElement('div');
-                textDiv.textContent = text;
-                messageDiv.appendChild(textDiv);
-                
-                const timeDiv = document.createElement('div');
-                timeDiv.className = 'timestamp';
-                timeDiv.textContent = timestamp.toLocaleTimeString();
-                messageDiv.appendChild(timeDiv);
-                
-                this.conversation.appendChild(messageDiv);
-                this.conversation.scrollTop = this.conversation.scrollHeight;
-            }
-
-            updateStatus(service, status) {
-                const statusElement = document.getElementById(`${service}Status`);
-                if (!statusElement) return;
-                
-                statusElement.className = 'status-indicator';
-                
-                switch (status) {
-                    case 'connected':
-                        statusElement.classList.add('connected');
-                        break;
-                    case 'active':
-                        statusElement.classList.add('active');
-                        break;
-                    case 'processing':
-                        statusElement.classList.add('processing');
-                        break;
-                    case 'error':
-                        statusElement.style.background = '#ff4757';
-                        break;
-                    default:
-                        statusElement.style.background = '#ff4757';
-                }
-            }
-
-            showError(message) {
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.textContent = `Error: ${message}`;
-                
-                const container = document.querySelector('.container');
-                const statusBar = document.querySelector('.status-bar');
-                container.insertBefore(errorDiv, statusBar.nextSibling);
-                
-                setTimeout(() => {
-                    if (errorDiv.parentNode) {
-                        errorDiv.parentNode.removeChild(errorDiv);
-                    }
-                }, 5000);
-            }
-
-            clearConversation() {
-                this.conversation.innerHTML = '';
-                this.sessionStats = {
-                    audioChunks: 0,
-                    transcriptCount: 0,
-                    responseCount: 0
+                const typeLabels = {
+                    user: '👤 You',
+                    ai: '🤖 AI Assistant',
+                    transcript: '📝 Transcript',
+                    system: 'ℹ️ System',
+                    error: '⚠️ Error'
                 };
-                this.updateStatsDisplay();
                 
-                // Reset latency metrics
-                this.latencyMeasurements = [];
-                this.currentLatency = 0;
-                this.avgLatency = 0;
-                this.minLatency = Infinity;
-                this.maxLatency = 0;
-                this.updateLatencyDisplay();
-            }
-
-            updateStatsDisplay() {
-                this.audioChunksElement.textContent = this.sessionStats.audioChunks;
-                this.transcriptCountElement.textContent = this.sessionStats.transcriptCount;
-                this.responseCountElement.textContent = this.sessionStats.responseCount;
-            }
-
-            updateLatency(latency) {
-                this.currentLatency = latency;
-                this.latencyMeasurements.push(latency);
+                messageEl.innerHTML = `<strong>${typeLabels[type] || type}:</strong> ${content}`;
+                this.conversationEl.appendChild(messageEl);
+                this.conversationEl.scrollTop = this.conversationEl.scrollHeight;
                 
-                // Update min/max
-                if (latency < this.minLatency) this.minLatency = latency;
-                if (latency > this.maxLatency) this.maxLatency = latency;
-                
-                // Calculate average
-                const sum = this.latencyMeasurements.reduce((a, b) => a + b, 0);
-                this.avgLatency = Math.round(sum / this.latencyMeasurements.length);
-                
-                this.updateLatencyDisplay();
+                this.stats.messages++;
+                this.updateStats();
             }
-
-            updateLatencyDisplay() {
-                this.latencyValue.textContent = this.currentLatency > 0 ? this.currentLatency : '-';
-                this.avgLatencyElement.textContent = this.avgLatency > 0 ? `${this.avgLatency} ms` : '-';
-                this.minLatencyElement.textContent = this.minLatency !== Infinity ? `${this.minLatency} ms` : '-';
-                this.maxLatencyElement.textContent = this.maxLatency > 0 ? `${this.maxLatency} ms` : '-';
+            
+            updateLastAIMessage(token, isPartial) {
+                const messages = this.conversationEl.querySelectorAll('.ai-message');
+                const lastMessage = messages[messages.length - 1];
+                
+                if (lastMessage) {
+                    const content = lastMessage.innerHTML;
+                    if (content.includes('<div class="loading"></div>')) {
+                        // Replace loading indicator with first token
+                        lastMessage.innerHTML = '<strong>🤖 AI Assistant:</strong> ' + token;
+                    } else {
+                        // Append token to existing content
+                        const currentText = lastMessage.innerHTML.replace('<strong>🤖 AI Assistant:</strong> ', '');
+                        lastMessage.innerHTML = '<strong>🤖 AI Assistant:</strong> ' + currentText + token;
+                    }
+                    
+                    this.conversationEl.scrollTop = this.conversationEl.scrollHeight;
+                }
             }
-
-            generateCallSid() {
-                return 'call_' + Math.random().toString(36).substr(2, 9);
+            
+            updateStatus(text, connected) {
+                this.statusEl.textContent = text;
+                this.statusEl.className = `status ${connected ? 'connected' : 'disconnected'}`;
+                this.connectionStatEl.textContent = text;
+            }
+            
+            updateStats() {
+                this.audioChunksStatEl.textContent = this.stats.audioChunks;
+                this.messagesStatEl.textContent = this.stats.messages;
             }
         }
-
-        // Global functions
-        function clearConversation() {
-            if (window.voiceClient) {
-                window.voiceClient.clearConversation();
-            }
-        }
-
-        // Initialize the client when page loads
+        
+        // Initialize the client when the page loads
         document.addEventListener('DOMContentLoaded', () => {
-            window.voiceClient = new PushToTalkVoiceClient();
-        });
-
-        // Prevent accidental page refresh
-        window.addEventListener('beforeunload', (e) => {
-            if (window.voiceClient && window.voiceClient.isRecording) {
-                e.preventDefault();
-                e.returnValue = '';
-                return '';
-            }
+            new PushToTalkClient();
         });
     </script>
 </body>
