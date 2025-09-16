@@ -22,10 +22,6 @@ const config = {
     apiKey: process.env.GROQ_API_KEY,
     model: process.env.GROQ_MODEL || 'llama3-8b-8192'
   },
-  mock: {
-    deepgram: process.env.MOCK_DEEPGRAM === 'true',
-    llm: process.env.MOCK_LLM === 'true'
-  },
   audio: {
     sampleRate: 48000, // Match browser AudioContext
     channels: 1,
@@ -46,46 +42,19 @@ class GroqStreamingClient {
   constructor() {
     this.apiKey = config.groq.apiKey;
     this.model = config.groq.model;
-    this.mockMode = config.mock.llm || !this.apiKey;
     this.systemPrompt = "You are a helpful, friendly, and concise AI assistant. Keep responses brief and conversational. If the user is still speaking (indicated by 'partial' context), acknowledge briefly or wait for more. If they've finished ('complete' context), provide a full, helpful response. Avoid markdown, just plain text.";
 
-    if (this.mockMode) {
-      console.log('Groq LLM MOCK MODE ENABLED');
-    } else if (this.apiKey) {
+    if (this.apiKey) {
       this.client = new Groq({ apiKey: this.apiKey });
       console.log(`Groq LLM LIVE MODE - using model: ${this.model}`);
     } else {
-      console.log('Groq LLM DISABLED - no API key');
+      throw new Error('Groq API key is required');
     }
-
-    this.fallbackResponses = [
-      "I understand. How else can I help?",
-      "Thanks for that. What else would you like to know?",
-      "Got it. Is there anything specific you'd like assistance with?",
-      "I'm here to help. What's your next question?",
-      "That's helpful context. How can I assist you further?"
-    ];
-    this.fallbackIndex = 0;
   }
 
   async generateStreamingResponse(conversationHistory, currentTranscript, isComplete, callSid, onToken, onComplete) {
     const startTime = Date.now();
     console.log(`[${callSid}] LLM: Generating response (complete: ${isComplete}) for: "${currentTranscript}"`);
-
-    if (this.mockMode) {
-      console.log(`[${callSid}] LLM: Mock mode enabled, using hardcoded response`);
-      const mockResponse = await this.getMockResponse(currentTranscript, isComplete);
-      const words = mockResponse.split(' ');
-      let accumulated = '';
-      for (const word of words) {
-        accumulated += word + ' ';
-        onToken(word + ' ');
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      onComplete();
-      const latency = Date.now() - startTime;
-      return { text: mockResponse, latency };
-    }
 
     if (!this.client) {
       throw new Error('Groq client not initialized');
@@ -128,72 +97,7 @@ class GroqStreamingClient {
       return { text: fullResponse.trim(), latency };
     } catch (error) {
       console.error(`[${callSid}] LLM: Streaming error:`, error.message || error);
-      const fallbackResponse = this.getFallbackResponse(currentTranscript);
-      const words = fallbackResponse.split(' ');
-      let accumulated = '';
-      for (const word of words) {
-        accumulated += word + ' ';
-        onToken(word + ' ');
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      onComplete();
-      const latency = Date.now() - startTime;
-      return { text: fallbackResponse, latency };
-    }
-  }
-
-  getMockResponse(input, isComplete) {
-    const delay = 500 + Math.random() * 1000;
-    return new Promise(resolve => {
-      setTimeout(() => {
-        const lowerInput = input.toLowerCase();
-        let response;
-        if (lowerInput.includes('hello') || lowerInput.includes('hi')) {
-          response = "Hello! Great to meet you. How can I help you today?";
-        } else if (lowerInput.includes('how are you')) {
-          response = "I'm doing well, thank you for asking! How are you doing?";
-        } else if (lowerInput.includes('weather')) {
-          response = "I don't have real-time weather data, but I hope it's nice where you are!";
-        } else if (lowerInput.includes('test')) {
-          response = "This test is working great! The voice system seems to be functioning well.";
-        } else if (lowerInput.includes('explain') || lowerInput.includes('how does') || lowerInput.includes('what')) {
-          response = "That's a great question! Let me think about the best way to explain that.";
-        } else if (lowerInput.includes('thank')) {
-          response = "You're very welcome! Happy to help anytime.";
-        } else if (lowerInput.includes('bye') || lowerInput.includes('goodbye')) {
-          response = "Goodbye! It was great talking with you today.";
-        } else if (!isComplete) {
-          const acks = ["I'm listening...", "Go on...", "Mm-hmm...", "I see..."];
-          response = acks[Math.floor(Math.random() * acks.length)];
-        } else {
-          const defaults = [
-            "That's interesting! Tell me more about that.",
-            "I understand what you're saying. What else would you like to discuss?",
-            "Thanks for sharing that with me. How can I help further?",
-            "I hear you. What's your next question?",
-            "That makes sense. What else is on your mind?"
-          ];
-          response = defaults[Math.floor(Math.random() * defaults.length)];
-        }
-        resolve(response);
-      }, delay);
-    });
-  }
-
-  getFallbackResponse(input) {
-    const lowerInput = input.toLowerCase();
-    if (lowerInput.includes('hello') || lowerInput.includes('hi')) {
-      return "Hello! How can I help you today?";
-    } else if (lowerInput.includes('how are you')) {
-      return "I'm doing well, thank you for asking!";
-    } else if (lowerInput.includes('thank')) {
-      return "You're welcome!";
-    } else if (lowerInput.includes('bye') || lowerInput.includes('goodbye')) {
-      return "Goodbye! Have a great day!";
-    } else {
-      const response = this.fallbackResponses[this.fallbackIndex % this.fallbackResponses.length];
-      this.fallbackIndex++;
-      return response;
+      throw error;
     }
   }
 }
@@ -202,29 +106,17 @@ class DeepgramTTSClient {
   constructor() {
     this.apiKey = config.deepgram.apiKey;
     this.voice = config.deepgram.ttsVoice;
-    this.mockMode = config.mock.deepgram || !this.apiKey;
 
-    if (this.mockMode) {
-      console.log('Deepgram TTS MOCK MODE ENABLED - returning text only');
-    } else if (this.apiKey) {
+    if (this.apiKey) {
       console.log(`Deepgram TTS LIVE MODE - using voice: ${this.voice}`);
     } else {
-      console.log('Deepgram TTS DISABLED - no API key');
-    }
-    if (!this.apiKey && !config.mock.deepgram) {
-      console.warn('WARNING: No Deepgram API key found for TTS - will use mock mode');
+      throw new Error('Deepgram API key is required for TTS');
     }
   }
 
   async generateSpeech(text, callSid) {
     const startTime = Date.now();
     console.log(`[${callSid}] TTS: Generating speech for: "${text}"`);
-
-    if (this.mockMode || !this.apiKey) {
-      console.log(`[${callSid}] TTS: Mock mode - returning empty buffer`);
-      const latency = Date.now() - startTime;
-      return { text, audioBuffer: Buffer.alloc(0), format: 'mock', voiceId: 'mock', latency };
-    }
 
     try {
       const cleanText = text.replace(/[^\w\s.,!?;:'"-]/gi, '').trim();
@@ -252,8 +144,7 @@ class DeepgramTTSClient {
       return { text, audioBuffer, format: 'mulaw', voiceId: this.voice, latency };
     } catch (error) {
       console.error(`[${callSid}] TTS: Error`, error.message);
-      const latency = Date.now() - startTime;
-      return { text, audioBuffer: null, latency };
+      throw error;
     }
   }
 }
@@ -261,78 +152,19 @@ class DeepgramTTSClient {
 class DeepgramStreamingASR {
   constructor() {
     this.apiKey = config.deepgram.apiKey;
-    this.mockMode = config.mock.deepgram || !this.apiKey;
     this.audioQueues = {};
-    this.mockConnections = {};
     this.connectionStates = {};
 
-    if (this.mockMode) {
-      console.log('Deepgram ASR MOCK MODE ENABLED');
-    } else if (this.apiKey) {
+    if (this.apiKey) {
       this.client = createClient(this.apiKey);
       console.log('Deepgram ASR LIVE MODE');
     } else {
-      console.log('Deepgram ASR DISABLED - no API key');
+      throw new Error('Deepgram API key is required for ASR');
     }
   }
 
   async createStreamingConnection(callSid, onTranscript) {
     console.log(`[${callSid}] Creating Deepgram streaming connection`);
-
-    if (this.mockMode || !this.apiKey) {
-      console.log(`[${callSid}] Using mock Deepgram connection`);
-      const mockConnection = new EventEmitter();
-      mockConnection.readyState = 1;
-      mockConnection.audioChunkCount = 0;
-      mockConnection.send = (audioBuffer) => {
-        mockConnection.audioChunkCount++;
-        console.log(`[${callSid}] Mock: Received audio chunk ${mockConnection.audioChunkCount} (${audioBuffer.length} bytes)`);
-        
-        const shouldTranscribe = mockConnection.audioChunkCount >= 3 &&
-          mockConnection.audioChunkCount % (2 + Math.floor(Math.random() * 3)) === 0;
-          
-        if (shouldTranscribe) {
-          const mockTexts = [
-            "Hello there how are you doing today",
-            "I have a question about artificial intelligence",
-            "Can you help me understand how this works",
-            "What do you think about the weather",
-            "I'm testing the voice recognition system",
-            "This is working perfectly now",
-            "Could you please explain that concept",
-            "Thank you for your help with this"
-          ];
-          
-          const mockText = mockTexts[Math.floor(Math.random() * mockTexts.length)];
-          const isFinal = Math.random() > 0.4;
-          
-          console.log(`[${callSid}] Mock transcript: "${mockText}" (final: ${isFinal})`);
-          
-          setTimeout(() => {
-            onTranscript({ 
-              text: mockText, 
-              is_final: isFinal, 
-              confidence: 0.95 
-            });
-          }, 100 + Math.random() * 200);
-        }
-      };
-      
-      mockConnection.finish = () => {
-        mockConnection.emit('close');
-      };
-      
-      this.mockConnections[callSid] = mockConnection;
-      this.connectionStates[callSid] = 'CONNECTING';
-      
-      setTimeout(() => {
-        mockConnection.emit('open');
-        this.connectionStates[callSid] = 'OPEN';
-        console.log(`[${callSid}] Mock connection ready`);
-      }, 100);
-      
-      return mockConnection;
-    }
 
     if (!this.client) {
       throw new Error('Deepgram client not initialized');
@@ -415,7 +247,7 @@ class DeepgramStreamingASR {
     } catch (error) {
       console.error(`[${callSid}] Error creating Deepgram connection:`, error);
       this.connectionStates[callSid] = 'ERROR';
-      return null;
+      throw error;
     }
   }
 
@@ -480,14 +312,6 @@ class DeepgramStreamingASR {
   }
 
   cleanup() {
-    Object.keys(this.mockConnections).forEach(callSid => {
-      try {
-        this.mockConnections[callSid].finish();
-      } catch (e) {
-        console.error(`Error closing mock connection for ${callSid}:`, e);
-      }
-    });
-    this.mockConnections = {};
     this.audioQueues = {};
     this.connectionStates = {};
   }
