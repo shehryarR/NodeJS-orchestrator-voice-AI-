@@ -1,0 +1,9 @@
+{
+  "name": "stt",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "wav-decoder": "^1.3.0",
+    "ws": "^8.18.3"
+  }
+}
