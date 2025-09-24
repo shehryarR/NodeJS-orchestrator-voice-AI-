@@ -1,7 +1,11 @@
 import WebSocket, { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
+import dotenv from 'dotenv';
 
-const wss = new WebSocketServer({ port: 8080 });
+dotenv.config();
+
+const PORT = Number(process.env.STT_PORT) || 8080;
+const wss = new WebSocketServer({ port: PORT });
 
 wss.on('connection', (ws) => {
     console.log('Client connected');
@@ -19,7 +23,6 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('message', (message) => {
-        // message is already length-prefixed Buffer
         if (!py.killed) {
             py.stdin.write(message);
         }
@@ -37,4 +40,4 @@ wss.on('connection', (ws) => {
     ws.on('error', (err) => console.error('WebSocket error:', err));
 });
 
-console.log('WebSocket server running on ws://localhost:8080');
+console.log(`WebSocket server running on ws://localhost:${PORT}`);
